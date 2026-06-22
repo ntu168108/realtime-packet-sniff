@@ -10,6 +10,8 @@
 [![Tests](https://img.shields.io/badge/tests-36%20passing-brightgreen.svg)](tests/integration_tests/)
 [![Version](https://img.shields.io/badge/version-0.2.0-orange.svg)]()
 
+📖 [Đọc bằng Tiếng Việt](README_VI.md)
+
 SNIFF is a real-time packet capture tool with an interactive TUI, a background
 daemon, and a live NDJSON stream mode. The same capture engine is the
 front-end of a full IDS pipeline that streams pcap segments to Kafka,
