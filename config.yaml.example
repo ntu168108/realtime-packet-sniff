@@ -1,0 +1,79 @@
+# SNIFF - Cấu hình mẫu
+# Copy file này thành config.yaml và chỉnh theo nhu cầu
+
+# ===== Capture =====
+capture:
+  # Interface mạng để bắt gói tin
+  interface: eth0
+
+  # BPF filter (để trống = capture tất cả)
+  # Ví dụ: "tcp port 80", "host 192.168.1.1 and port 443"
+  bpf_filter: ""
+
+  # Snaplen: số bytes tối đa capture mỗi gói
+  # 1518 = full Ethernet, 65535 = max
+  snaplen: 65535
+
+  # Promiscuous mode (true = bắt tất cả gói trên mạng)
+  promisc: true
+
+  # Buffer profile: low | balanced | fast | max
+  buffer_profile: balanced
+
+  # ===== Storage =====
+  output:
+    # Thư mục gốc cho PCAP files
+    base_dir: ./sniff_data
+
+    # Số ngày giữ file (0 = giữ mãi)
+    retention_days: 7
+
+    # Rotation interval (giây) - default 3600 = 1h
+    rotate_interval: 3600
+
+    # Max file size trước khi force rotate (bytes) - default 1GB
+    max_file_size: 1073741824
+
+    # Gzip compress sau khi rotate
+    compress: false
+
+  # ===== Display =====
+  display:
+    # Filter hiển thị trong TUI (BPF-style)
+    display_filter: ""
+
+    # Loại trừ ports (vd: [22] để bỏ SSH)
+    exclude_ports: []
+
+    # Số packets cache trong list view
+    cache_size: 5000
+
+  # ===== Live mode =====
+  live:
+    # Chỉ output JSON lines (không TUI) - dùng cho pipe
+    enabled: false
+
+  # ===== Modules =====
+  modules:
+    enabled: []  # Để trống = bật tất cả
+    auto_discover: true
+
+  # ===== Performance =====
+  performance:
+    # Ring buffer size (số packets)
+    ring_buffer_size: 65536
+
+    # PCAP batch size (packets/batch)
+    batch_size: 256
+
+    # Deep L7 decode (DNS/HTTP/TLS/...) - tốn CPU
+    enable_deep_decode: false
+
+    # Periodic GC mỗi N giây
+    gc_interval: 30
+
+  # ===== Daemon =====
+  daemon:
+    pid_file: /tmp/sniff.pid
+    log_file: /tmp/sniff.log
+    log_level: INFO

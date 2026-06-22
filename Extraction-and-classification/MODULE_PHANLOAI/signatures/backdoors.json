@@ -1,0 +1,50 @@
+{
+  "class_name": "Backdoors",
+  "display_name": "Backdoors",
+  "description": "Backdoor attack — cửa sau trên server, cho phép truy cập trái phép. Đặc trưng: profile rất giống DoS/Analysis (sttl=254, state=INT, dbytes=0) → cần kết hợp categorical (state INT, service ftp/http) để phân biệt. Cảnh báo: baseline.json đánh dấu CONFIRMED values_corrected.",
+  "keep_columns": [
+    "src_mac", "dst_mac", "srcip", "dstip",
+    "sport", "dport", "ltime",
+    "sttl", "ct_state_ttl", "dttl",
+    "sbytes", "dbytes", "smean", "dmean", "rate",
+    "dur", "spkts", "dpkts",
+    "sloss", "dloss",
+    "sload", "dload",
+    "swin", "dwin",
+    "tcprtt", "synack", "ackdat",
+    "sjit", "djit", "sinpkt", "dinpkt",
+    "ct_srv_src", "ct_srv_dst", "ct_dst_src_ltm",
+    "ct_src_ltm", "ct_dst_ltm",
+    "ct_src_dport_ltm", "ct_dst_sport_ltm",
+    "proto", "state", "service"
+  ],
+  "categorical_mode": {
+    "proto": ["tcp", "udp"],
+    "state": ["INT", "REQ", "CON"],
+    "service": ["-", "http", "ftp", "ssh", "smtp"]
+  },
+  "signature": {
+    "decisive": [
+      { "feature": "sttl",         "op": ">=", "threshold": 142.5,         "attack_median": 254.0,        "normal_median": 31.0 },
+      { "feature": "dttl",         "op": "<=", "threshold": 14.5,          "attack_median": 0.0,          "normal_median": 29.0 },
+      { "feature": "ct_state_ttl", "op": ">=", "threshold": 1.0,           "attack_median": 2.0,          "normal_median": 0.0 },
+      { "feature": "swin",         "op": "<=", "threshold": 127.5,         "attack_median": 0.0,          "normal_median": 255.0 },
+      { "feature": "rate",         "op": ">=", "threshold": 112841.6957,    "attack_median": 222222.2222,  "normal_median": 3461.1692 },
+      { "feature": "sload",        "op": ">=", "threshold": 44724137.4688,  "attack_median": 88888888.0,   "normal_median": 559386.9375 }
+    ],
+    "support": [
+      { "feature": "sloss",  "op": "<=", "threshold": 2.0,   "attack_median": 0.0,   "normal_median": 4.0 },
+      { "feature": "sbytes", "op": "<=", "threshold": 942.0, "attack_median": 200.0, "normal_median": 1684.0 },
+      { "feature": "dpkts",  "op": "<=", "threshold": 9.0,   "attack_median": 0.0,   "normal_median": 18.0 },
+      { "feature": "smean",  "op": ">=", "threshold": 86.5,  "attack_median": 100.0, "normal_median": 73.0 },
+      { "feature": "dloss",  "op": "<=", "threshold": 2.5,   "attack_median": 0.0,   "normal_median": 5.0 },
+      { "feature": "spkts",  "op": "<=", "threshold": 8.0,   "attack_median": 2.0,   "normal_median": 14.0 }
+    ]
+  },
+  "scoring": {
+    "weight_decisive": 10,
+    "weight_support": 3,
+    "min_decisive_required": 2,
+    "threshold": 30
+  }
+}

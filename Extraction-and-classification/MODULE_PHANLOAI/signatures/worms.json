@@ -1,0 +1,53 @@
+{
+  "class_name": "Worms",
+  "display_name": "Worms",
+  "description": "Worm attack — phần mềm tự lây lan qua mạng. Đặc trưng: profile khác biệt so với các class khác — high inter-packet timing (sinpkt, dinpkt, sjit, djit), low rate (<1754), low ct_src_ltm (<3), sttl/dttl cao (cả 2 chiều). Cảnh báo: dataset có rất ít mẫu (174) → cần cross-validate với rule-based + ML.",
+  "keep_columns": [
+    "src_mac", "dst_mac", "srcip", "dstip",
+    "sport", "dport", "ltime",
+    "sttl", "dttl",
+    "ct_state_ttl",
+    "sbytes", "dbytes", "smean", "dmean",
+    "rate",
+    "dur",
+    "sloss", "dloss",
+    "sload",
+    "sinpkt", "dinpkt",
+    "sjit", "djit",
+    "ct_srv_src", "ct_srv_dst",
+    "ct_src_ltm", "ct_dst_ltm",
+    "ct_flw_http_mthd",
+    "proto", "state", "service"
+  ],
+  "categorical_mode": {
+    "proto": ["tcp", "udp", "icmp"],
+    "state": ["INT", "REQ", "CON", "FIN"],
+    "service": ["-", "http", "dns", "smtp"]
+  },
+  "signature": {
+    "decisive": [
+      { "feature": "sttl",         "op": ">=", "threshold": 142.5,      "attack_median": 254.0,   "normal_median": 31.0 },
+      { "feature": "dttl",         "op": ">=", "threshold": 140.5,      "attack_median": 252.0,   "normal_median": 29.0 },
+      { "feature": "sinpkt",       "op": ">=", "threshold": 27.7943,    "attack_median": 55.0361, "normal_median": 0.5525 },
+      { "feature": "sjit",         "op": ">=", "threshold": 1432.5343,  "attack_median": 2841.2783, "normal_median": 23.7903 },
+      { "feature": "rate",         "op": "<=", "threshold": 1754.3892,  "attack_median": 47.6093, "normal_median": 3461.1692 },
+      { "feature": "dinpkt",       "op": ">=", "threshold": 28.6251,    "attack_median": 56.73,   "normal_median": 0.5203 },
+      { "feature": "smean",        "op": ">=", "threshold": 101.5,      "attack_median": 130.0,   "normal_median": 73.0 },
+      { "feature": "ct_state_ttl", "op": ">=", "threshold": 0.5,        "attack_median": 1.0,     "normal_median": 0.0 }
+    ],
+    "support": [
+      { "feature": "ct_flw_http_mthd", "op": ">=", "threshold": 0.5,         "attack_median": 1.0,    "normal_median": 0.0 },
+      { "feature": "ct_src_ltm",       "op": "<=", "threshold": 2.5,         "attack_median": 1.0,    "normal_median": 4.0 },
+      { "feature": "djit",             "op": ">=", "threshold": 74.5149,     "attack_median": 133.6403, "normal_median": 15.3896 },
+      { "feature": "ct_srv_src",       "op": "<=", "threshold": 3.0,         "attack_median": 1.0,    "normal_median": 5.0 },
+      { "feature": "ct_dst_ltm",       "op": "<=", "threshold": 2.0,         "attack_median": 1.0,    "normal_median": 3.0 },
+      { "feature": "sload",            "op": "<=", "threshold": 288044.6148, "attack_median": 16702.292, "normal_median": 559386.9375 }
+    ]
+  },
+  "scoring": {
+    "weight_decisive": 10,
+    "weight_support": 3,
+    "min_decisive_required": 2,
+    "threshold": 30
+  }
+}

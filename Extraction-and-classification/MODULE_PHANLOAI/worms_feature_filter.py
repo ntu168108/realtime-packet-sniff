@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""worms_feature_filter.py — Filter + classify Worms attacks."""
+import argparse, logging, sys
+from pathlib import Path
+from baseline_filter import run
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+logger = logging.getLogger(__name__)
+CLASS_NAME = "Worms"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=f"Filter + classify {CLASS_NAME} attacks.")
+    parser.add_argument("input", nargs="?",
+        default=r"D:\1LearnandStudy\Program_Language\Python\CSV\CSV_Full_feature",
+        help="Input CSV file or directory.")
+    parser.add_argument("-o", "--output", default=None)
+    args = parser.parse_args()
+
+    in_path = Path(args.input)
+    out_path = Path(args.output) if args.output else None
+
+    if in_path.is_dir():
+        out_dir = out_path if out_path and out_path.is_dir() else (out_path or in_path)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for csv in sorted(in_path.glob("*.csv")):
+            _process_one(csv, out_dir)
+    elif in_path.is_file():
+        _process_one(in_path, out_path)
+    else:
+        logger.error(f"Not found: {in_path}")
+        sys.exit(1)
+
+
+def _process_one(in_csv, out_target):
+    name = in_csv.stem
+    if name.endswith(f"_{CLASS_NAME.lower()}_features"):
+        return
+    base = name[:-4] if name.endswith("_raw") else name
+    if out_target is None:
+        out_csv = None
+    elif out_target.is_dir() or str(out_target).endswith(("/", "\\")):
+        out_csv = out_target / f"{base}_{CLASS_NAME.lower()}_features.csv"
+    else:
+        out_csv = out_target
+    logger.info(f"Processing: {in_csv.name}")
+    run(CLASS_NAME, str(in_csv), str(out_csv) if out_csv else None)
+
+
+if __name__ == "__main__":
+    main()
