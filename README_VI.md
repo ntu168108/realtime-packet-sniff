@@ -131,7 +131,12 @@ Ví dụ:
 
 ## Pipeline IDS Đầy Đủ (Nâng Cao)
 
-Pipeline IDS đi kèm repo là pipeline tham khảo của lab dự án — không phải một phần của cài đặt one-liner. Xem [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) cho data flow đầy đủ, [`docs/OPERATIONS.md`](docs/OPERATIONS.md) cho runbook vận hành, và các thư mục `deploy/` và `sql/` cho config sẵn dùng.
+Pipeline IDS đi kèm repo là pipeline tham khảo của lab dự án — không phải một phần của cài đặt one-liner.
+
+> 📖 **Hướng dẫn tự triển khai từng bước:** [`HUONG_DAN_TRIEN_KHAI.md`](HUONG_DAN_TRIEN_KHAI.md)  
+> Bao gồm: cài Kafka, ClickHouse, Grafana, Argus, Zeek, systemd services, xử lý sự cố thường gặp.
+
+Xem [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) cho data flow đầy đủ, [`docs/OPERATIONS.md`](docs/OPERATIONS.md) cho runbook vận hành, và các thư mục `deploy/` và `sql/` cho config sẵn dùng.
 
 **Các attack family** (taxonomy UNSW-NB15 — bộ lọc đặc trưng per family, scoring dựa trên luật cho DoS):
 
