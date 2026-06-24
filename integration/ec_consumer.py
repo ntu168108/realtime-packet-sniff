@@ -35,11 +35,27 @@ if not (SHM_DIR.exists() and os.access(str(SHM_DIR), os.W_OK)):
     SHM_DIR = Path(tempfile.gettempdir())
 
 
-EC = Path(
-    os.environ.get(
-        "NB15_EC", os.path.expanduser("~/sniff/Extraction-and-classification")
-    )
-)
+# Where to find the Extraction-and-classification repo.
+# Resolution order:
+#   1. NB15_EC env var (operator override for prod)
+#   2. <repo>/Extraction-and-classification (the repo's own sibling dir)
+#   3. ~/sniff/Extraction-and-classification (legacy prod path)
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_EC_CANDIDATES = [
+    _REPO_ROOT / "Extraction-and-classification",
+    Path(os.path.expanduser("~/sniff/Extraction-and-classification")),
+]
+
+
+def _default_ec() -> Path:
+    for cand in _DEFAULT_EC_CANDIDATES:
+        if cand.is_dir():
+            return cand
+    # Fall back to the first candidate so logs/error messages show a real path.
+    return _DEFAULT_EC_CANDIDATES[0]
+
+
+EC = Path(os.environ.get("NB15_EC") or str(_default_ec()))
 
 # Family key -> directory containing the per-family filtered CSV.
 FAMILY_DIRS = {

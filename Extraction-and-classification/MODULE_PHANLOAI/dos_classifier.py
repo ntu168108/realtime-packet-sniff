@@ -401,7 +401,9 @@ def _precompute_conditions(
         # TTL & trạng thái
         'sttl_high':          sttl_arr >= th['sttl_high'],
         'ct_state_ttl_high':  ct_state_ttl_arr >= th['ct_state_ttl_min'],
-        'dttl_zero':          (dttl_arr == 0) | (pd.Series(dttl_arr).isna().values if 'dttl' in df.columns else np.zeros(n, dtype=bool)),
+        # _num() fills NaN with 0.0, so "missing" and "explicitly zero" both
+        # count as dttl_zero. No extra isna() check needed.
+        'dttl_zero':          dttl_arr == 0,
 
         # Lưu lượng
         'dbytes_zero':  dbytes_arr == 0,

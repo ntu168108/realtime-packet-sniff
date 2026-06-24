@@ -3,7 +3,20 @@ import glob
 import re
 import os
 
-EC = os.path.expanduser("~/sniff/Extraction-and-classification")
+# Default EC path mirrors integration/ec_consumer.NB15_EC default.
+# Allow override via env so the test still works on a developer's machine
+# where Extraction-and-classification lives elsewhere (e.g. ~/sniff/...).
+EC = os.environ.get(
+    "NB15_EC",
+    os.path.expanduser("~/sniff/Extraction-and-classification"),
+)
+# Fall back to the repo-relative location used by the rest of the test
+# suite (tests/integration_tests -> repo root -> Extraction-and-classification).
+_REPO_EC = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "Extraction-and-classification")
+)
+if not os.path.isdir(EC):
+    EC = _REPO_EC
 
 # The 7 family filters listed in the plan.
 FAMILY_FILTERS = [

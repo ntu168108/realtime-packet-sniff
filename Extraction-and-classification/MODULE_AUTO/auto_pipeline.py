@@ -146,7 +146,7 @@ def process_pcap(pcap_path: str) -> bool:
 
     try:
         # --- Buoc 1: Trich xuat (extractor.py) ---------------------------
-        logger.info("BUOC 1/3: Trich xuat dac trung (extractor.py)")
+        logger.info("BUOC 1/4: Trich xuat dac trung (extractor.py)")
         _run(PYTHON_CMD + [str(EXTRACTOR), str(pcap), "--output-dir", str(CSV_FULL_FEATURE)],
              "extractor")
 
@@ -156,7 +156,7 @@ def process_pcap(pcap_path: str) -> bool:
             )
 
         # --- Buoc 2: Bo sung dac trung (add_features.py) -----------------
-        logger.info("BUOC 2/3: Bo sung dac trung (add_features.py)")
+        logger.info("BUOC 2/4: Bo sung dac trung (add_features.py)")
         _run(PYTHON_CMD + [str(ADD_FEATURES), str(raw_csv)], "add_features")
 
         if not dos_features_csv.is_file():
