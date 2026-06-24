@@ -148,8 +148,9 @@ Examples:
 The IDS pipeline that ships with this repo is the lab reference pipeline
 used by the project authors — not part of the one-liner install.
 
-> 🇻🇳 **Hướng dẫn tự triển khai từng bước (tiếng Việt):** [`HUONG_DAN_TRIEN_KHAI.md`](HUONG_DAN_TRIEN_KHAI.md)  
-> Bao gồm: cài Kafka, ClickHouse, Grafana, Argus, Zeek, systemd services, xử lý sự cố.
+> 📖 **Self-deployment guide (step-by-step):** [`DEPLOYMENT.md`](DEPLOYMENT.md)  
+> Covers: Kafka, ClickHouse, Grafana, Argus, Zeek, systemd services, and troubleshooting.  
+> 🇻🇳 Bản tiếng Việt: [`HUONG_DAN_TRIEN_KHAI.md`](HUONG_DAN_TRIEN_KHAI.md)
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full data flow,
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the operator runbook, and
