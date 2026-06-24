@@ -16,7 +16,7 @@ SNIFF is a real-time packet capture tool with an interactive TUI, a background
 daemon, and a live NDJSON stream mode. The same capture engine is the
 front-end of a full IDS pipeline that streams pcap segments to Kafka,
 extracts per-flow features with Argus + Zeek, classifies them against the
-UNSW-NB15 attack taxonomy with seven per-family classifiers, and ships
+UNSW-NB15 attack taxonomy with seven per-family feature filters and a rule-based DoS scoring engine, and ships
 results to ClickHouse for visualisation in Grafana.
 
 ## Architecture
@@ -29,7 +29,7 @@ flowchart LR
     SEG -->|"topic<br/>raw_pcap_segments"| KAFKA[(Kafka)]
     KAFKA --> EC["ec_consumer"]
     EC -->|"Argus + Zeek"| EX["Extraction<br/>(UNSW-NB15 features)"]
-    EX --> CL["7 Family Classifiers<br/>dos · exploits · fuzzers<br/>generic · analysis<br/>reconnaissance · shellcode"]
+    EX --> CL["7 Feature Filters + DoS Scorer<br/>dos · exploits · fuzzers<br/>generic · analysis<br/>reconnaissance · shellcode"]
     CL -->|"per-family CSVs"| CH[(ClickHouse<br/>flows_&lt;family&gt; + flows_all)]
     CH --> GRAF[Grafana<br/>SNIFF IDS Pipeline]
 ```
@@ -55,7 +55,7 @@ idempotent: ClickHouse `ReplacingMergeTree` deduplicates by
 
 - Kafka KRaft producer with ~60 s pcap blobs and 64 MiB back-pressure.
 - Argus + Zeek feature extraction producing the 45-column UNSW-NB15 feature set.
-- Seven per-family classifiers (one-vs-rest binary models): `dos`, `exploits`, `fuzzers`, `generic`, `analysis`, `reconnaissance`, `shellcode`.
+- Seven per-family feature filters (UNSW-NB15 attack taxonomy): `dos`, `exploits`, `fuzzers`, `generic`, `analysis`, `reconnaissance`, `shellcode`. DoS flows are further analysed by a dedicated rule-based scoring engine (`dos_classifier.py`) with three specialised sub-type scorers (SYN Flood · UDP Flood · ICMP Flood).
 - ClickHouse sink with batched inserts, ReplacingMergeTree dedup, audit columns (`segment_id`, `attack_family`, `attack_subtype`, `is_attack`, `interface`, `t_window`, `pcap_file`).
 - `pipeline_runs` audit table — one row per consumed segment, with duration and error message.
 - Grafana dashboard "SNIFF IDS Pipeline" with attacks timeline, top attackers, family counts, and pipeline health.
@@ -151,7 +151,7 @@ used by the project authors — not part of the one-liner install. See
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the operator runbook, and
 the `deploy/` and `sql/` directories for ready-to-use configs.
 
-**Attack families** (UNSW-NB15 taxonomy, one binary classifier each):
+**Attack families** (UNSW-NB15 taxonomy — feature filter per family, rule-based scoring for DoS):
 
 `dos`, `exploits`, `fuzzers`, `generic`, `analysis`, `reconnaissance`, `shellcode`
 

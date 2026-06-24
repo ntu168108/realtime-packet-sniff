@@ -165,7 +165,7 @@ def process_pcap(pcap_path: str) -> bool:
             )
 
         # --- Buoc 3: Chay 7 filter (che do file don le) ------------------
-        logger.info("BUOC 3/3: Chay %d filter phan loai", len(FILTERS))
+        logger.info("BUOC 3/4: Chay %d filter phan loai", len(FILTERS))
         failed_filters = []
         for i, filter_name in enumerate(FILTERS, 1):
             filter_path = MODULE_PHANLOAI / filter_name
@@ -181,6 +181,24 @@ def process_pcap(pcap_path: str) -> bool:
             except RuntimeError as exc:
                 logger.error("  Filter loi: %s (%s)", filter_name, exc)
                 failed_filters.append(filter_name)
+
+        # --- Buoc 4: Chay DoS Classification Engine (dos_classifier.py) --
+        logger.info("BUOC 4/4: DoS Classification Engine (dos_classifier.py)")
+        dos_classifier_path = MODULE_PHANLOAI / "dos_classifier.py"
+        if dos_classifier_path.is_file():
+            try:
+                _run(
+                    PYTHON_CMD + [
+                        str(dos_classifier_path),
+                        "--csv", str(dos_features_csv),
+                        "--skip-filter",
+                    ],
+                    "dos_classifier",
+                )
+            except RuntimeError as exc:
+                logger.warning("DoS Classifier khong chay duoc (khong chan pipeline): %s", exc)
+        else:
+            logger.warning("Khong tim thay dos_classifier.py tai: %s", dos_classifier_path)
 
         elapsed = time.time() - start
         logger.info("=" * 70)
