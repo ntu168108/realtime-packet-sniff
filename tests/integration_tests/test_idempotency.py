@@ -37,7 +37,10 @@ SCHEMA_HEADER = [
 
 @pytest.fixture(scope="module")
 def ch_client():
-    import clickhouse_driver
+    clickhouse_driver = pytest.importorskip(
+        "clickhouse_driver",
+        reason="clickhouse_driver not installed — skip live ClickHouse tests",
+    )
     client = clickhouse_driver.Client(host="localhost", port=9000,
                                       database="network_ids")
     yield client

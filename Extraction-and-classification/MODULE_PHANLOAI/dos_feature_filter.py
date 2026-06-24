@@ -33,6 +33,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_DIR = str(_PROJECT_ROOT / "CSV" / "Filter_DoS_feature")
 
 
+def filter_dos_features(input_csv: str, output_csv: str) -> None:
+    """Public API used by dos_classifier.py: filter DoS features and write to output_csv."""
+    run(CLASS_NAME, input_csv, output_csv)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=f"Filter + classify {CLASS_NAME} attacks using baseline signature rules."
