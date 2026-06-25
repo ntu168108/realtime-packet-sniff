@@ -131,11 +131,13 @@ cd realtime-packet-sniff
 ```bash
 pip install --break-system-packages -r requirements.txt
 pip install --break-system-packages -r requirements-integration.txt
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
 > - `requirements.txt` — scapy và capture tool
 > - `requirements-integration.txt` — Kafka, ClickHouse, pandas, ...
 > - `--break-system-packages` — bắt buộc trên Ubuntu 24.04
+> - `export PATH=...` — thêm `~/.local/bin` vào PATH để dùng được `scapy`, `pytest` trực tiếp
 
 **Danh sách packages chính:**
 
