@@ -92,10 +92,10 @@ sudo apt-get update && sudo apt-get upgrade -y
 sudo apt-get install -y \
     curl wget git unzip \
     build-essential \
-    libpcap-dev \              # required by scapy for raw packet capture
-    tcpdump tcpreplay \        # for traffic testing
+    libpcap-dev \
+    tcpdump tcpreplay \
     python3 python3-pip python3-venv \
-    openjdk-17-jre-headless   # Java runtime for Kafka
+    openjdk-17-jre-headless
 ```
 
 ### 1.2 Identify your network interface
