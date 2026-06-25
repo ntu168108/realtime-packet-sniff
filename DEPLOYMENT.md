@@ -209,6 +209,8 @@ log.retention.bytes=2147483648        # or 2 GiB per partition
 ```bash
 sudo mkdir -p /var/lib/kafka-logs
 sudo chown $USER:$USER /var/lib/kafka-logs
+sudo mkdir -p /opt/kafka/logs
+sudo chown $USER:$USER /opt/kafka/logs
 
 # Generate a cluster ID and format storage
 KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
