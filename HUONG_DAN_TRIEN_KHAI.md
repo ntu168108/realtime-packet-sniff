@@ -209,10 +209,8 @@ log.retention.bytes=2147483648
 
 ```bash
 # Tạo thư mục lưu trữ
-sudo mkdir -p /var/lib/kafka-logs
-sudo chown $USER:$USER /var/lib/kafka-logs
-sudo mkdir -p /opt/kafka/logs
-sudo chown $USER:$USER /opt/kafka/logs
+sudo mkdir -p /var/lib/kafka-logs /opt/kafka/logs
+sudo chown $USER:$USER /var/lib/kafka-logs /opt/kafka/logs
 
 # Tạo cluster ID và format storage
 KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
@@ -306,7 +304,7 @@ sudo apt-get install -y grafana
 ### 5.2 Cài plugin ClickHouse cho Grafana
 
 ```bash
-sudo grafana-cli plugins install grafana-clickhouse-datasource
+sudo grafana cli plugins install grafana-clickhouse-datasource
 ```
 
 ### 5.3 Cấu hình datasource và dashboard tự động
@@ -486,6 +484,12 @@ sudo sed -i "s|/home/tu/realtime-packet-sniff|${REPO_DIR}|g" \
 
 # Thay tên user trong ec-consumer.service (service này chạy không cần root)
 sudo sed -i "s|User=tu|User=${USER}|g" /etc/systemd/system/ec-consumer.service
+
+# Thêm PYTHONPATH để systemd tìm thấy packages đã cài với --break-system-packages
+PYPATH=$(python3 -c "import site; print(site.getusersitepackages())")
+sudo sed -i "s|Environment=PYTHONPATH=.*|Environment=PYTHONPATH=${PYPATH}|g" \
+    /etc/systemd/system/sniff-producer.service \
+    /etc/systemd/system/ec-consumer.service
 ```
 
 ### 9.3 Nội dung 3 unit files (để tham chiếu)
@@ -514,7 +518,9 @@ After=network.target kafka.service
 Requires=kafka.service
 
 [Service]
+User=root
 WorkingDirectory=/home/tu/realtime-packet-sniff
+Environment=PYTHONPATH=/home/tu/.local/lib/python3.12/site-packages
 ExecStart=/usr/bin/python3 -m integration.run_producer
 Restart=always
 RestartSec=5
@@ -533,6 +539,7 @@ Requires=kafka.service
 [Service]
 User=tu
 WorkingDirectory=/home/tu/realtime-packet-sniff
+Environment=PYTHONPATH=/home/tu/.local/lib/python3.12/site-packages
 ExecStart=/usr/bin/python3 -m integration.ec_consumer
 Restart=always
 RestartSec=5
