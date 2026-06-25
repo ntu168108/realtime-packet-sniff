@@ -180,7 +180,7 @@ sudo ln -sf /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka
 
 ```bash
 # Sao chép file cấu hình từ repo
-sudo cp deploy/kafka/server.properties /opt/kafka/config/kraft/server.properties
+sudo cp deploy/kafka/server.properties /opt/kafka/config/server.properties
 ```
 
 > Lệnh này lấy file cấu hình có sẵn trong repo (đã chỉnh sẵn cho KRaft) ghi đè lên file mặc định của Kafka.
@@ -216,11 +216,11 @@ sudo chown $USER:$USER /var/lib/kafka-logs
 KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
 /opt/kafka/bin/kafka-storage.sh format \
     -t $KAFKA_CLUSTER_ID \
-    -c /opt/kafka/config/kraft/server.properties
+    -c /opt/kafka/config/server.properties
 
 
 # Khởi động Kafka thủ công để tạo topic
-/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties &
+/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties &
 sleep 10
 
 # Tạo topic nhận pcap segments
@@ -495,7 +495,7 @@ Description=Apache Kafka (KRaft)
 After=network.target
 
 [Service]
-ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties
+ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties
 ExecStop=/opt/kafka/bin/kafka-server-stop.sh
 Restart=always
 RestartSec=5
@@ -786,7 +786,7 @@ sudo rm -rf /var/lib/kafka-logs
 KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
 /opt/kafka/bin/kafka-storage.sh format \
     -t $KAFKA_CLUSTER_ID \
-    -c /opt/kafka/config/kraft/server.properties
+    -c /opt/kafka/config/server.properties
 
 sudo systemctl start kafka
 # Tạo lại topic
