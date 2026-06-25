@@ -96,6 +96,7 @@ sudo apt-get install -y \
     tcpdump tcpreplay \
     python3 python3-pip python3-venv \
     openjdk-17-jre-headless
+```
 
 > - `curl wget git unzip` — công cụ tải file và quản lý source code
 > - `build-essential` — compiler C/C++ (cần để build một số package)
@@ -103,7 +104,6 @@ sudo apt-get install -y \
 > - `tcpdump tcpreplay` — công cụ kiểm tra và replay traffic
 > - `python3 python3-pip python3-venv` — Python runtime và môi trường ảo
 > - `openjdk-17-jre-headless` — Java runtime cho Kafka
-```
 
 ### 1.2 Kiểm tra interface mạng
 
@@ -175,22 +175,20 @@ KAFKA_VERSION="4.3.1"
 wget https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz
 sudo tar -xzf kafka_2.13-${KAFKA_VERSION}.tgz -C /opt/
 sudo ln -sf /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka
+```
 
 > - `wget ...tgz` — tải bản Kafka mới nhất về
 > - `tar -xzf ... -C /opt/` — giải nén vào `/opt/`
 > - `ln -sf` — tạo symlink `/opt/kafka` trỏ vào thư mục vừa giải nén, dễ nâng cấp sau này
-
-
-```
 
 ### 3.2 Cấu hình Kafka KRaft
 
 ```bash
 # Sao chép file cấu hình từ repo
 sudo cp deploy/kafka/server.properties /opt/kafka/config/kraft/server.properties
+```
 
 > Lệnh này lấy file cấu hình có sẵn trong repo (đã chỉnh sẵn cho KRaft) ghi đè lên file mặc định của Kafka.
-```
 
 Nội dung quan trọng trong `server.properties`:
 
@@ -225,8 +223,6 @@ KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
     -t $KAFKA_CLUSTER_ID \
     -c /opt/kafka/config/kraft/server.properties
 
-> - `random-uuid` — tạo ID duy nhất cho cluster Kafka
-> - `format` — khởi tạo thư mục lưu trữ với cluster ID đó (chỉ cần làm 1 lần)
 
 # Khởi động Kafka thủ công để tạo topic
 /opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties &
@@ -245,6 +241,9 @@ sleep 10
 /opt/kafka/bin/kafka-server-stop.sh
 ```
 
+> - `random-uuid` — tạo ID duy nhất cho cluster Kafka
+> - `format` — khởi tạo thư mục lưu trữ với cluster ID đó (chỉ cần làm 1 lần)
+
 ---
 
 ## Bước 4 — Cài ClickHouse
@@ -262,13 +261,13 @@ echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] \
 
 sudo apt-get update
 sudo apt-get install -y clickhouse-server clickhouse-client
+```
 
 > - `apt-transport-https ca-certificates` — cho phép apt tải qua HTTPS
 > - `gpg --dearmor` — thêm GPG key để xác thực package ClickHouse
 > - `tee /etc/apt/sources.list.d/clickhouse.list` — thêm repo ClickHouse vào apt
 > - `clickhouse-server` — service database chính
 > - `clickhouse-client` — CLI để query và kiểm tra
-```
 
 ### 4.2 Khởi động ClickHouse
 
@@ -302,10 +301,10 @@ echo "deb [signed-by=/usr/share/keyrings/grafana.key] \
 
 sudo apt-get update
 sudo apt-get install -y grafana
+```
 
 > - `gpg --dearmor` — thêm GPG key xác thực package Grafana
 > - `tee /etc/apt/sources.list.d/grafana.list` — thêm repo Grafana vào apt
-```
 
 ### 5.2 Cài plugin ClickHouse cho Grafana
 
@@ -321,13 +320,14 @@ sudo cp deploy/grafana/datasource.yaml  /etc/grafana/provisioning/datasources/
 sudo cp deploy/grafana/dashboards.yaml  /etc/grafana/provisioning/dashboards/
 sudo cp deploy/grafana/dashboard.json   /var/lib/grafana/dashboards/
 
-> - `datasource.yaml` — tự động cấu hình kết nối tới ClickHouse khi Grafana khởi động
-> - `dashboards.yaml` — chỉ cho Grafana biết tìm dashboard ở đâu
-> - `dashboard.json` — file dashboard hiển thị dữ liệu IDS pipeline
 
 sudo systemctl enable grafana-server
 sudo systemctl start grafana-server
 ```
+
+> - `datasource.yaml` — tự động cấu hình kết nối tới ClickHouse khi Grafana khởi động
+> - `dashboards.yaml` — chỉ cho Grafana biết tìm dashboard ở đâu
+> - `dashboard.json` — file dashboard hiển thị dữ liệu IDS pipeline
 
 > **Truy cập Grafana:** `http://<IP-máy-chủ>:3000`  
 > Tài khoản mặc định: `admin` / `admin` (đổi ngay lần đầu đăng nhập)  
@@ -344,19 +344,23 @@ Pipeline trích xuất đặc trưng dùng **Argus** (flow record) và **Zeek** 
 ```bash
 sudo apt-get install -y argus-server argus-client
 
-> - `argus-server` — service tạo flow record từ pcap
-> - `argus-client` (`ra`) — tool đọc và query flow record
 
 argus -V
 ra -V
 ```
 
+> - `argus-server` — service tạo flow record từ pcap
+> - `argus-client` (`ra`) — tool đọc và query flow record
+
 > Nếu apt không có, build từ source:
 > ```bash
+
+```
+
 > wget https://openargus.org/download/argus-3.0.8.tar.gz
 > tar xzf argus-3.0.8.tar.gz && cd argus-3.0.8
 > ./configure && make && sudo make install
-> ```
+> 
 
 ### 6.2 Cài Zeek
 
@@ -790,13 +794,14 @@ KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
     -t $KAFKA_CLUSTER_ID \
     -c /opt/kafka/config/kraft/server.properties
 
-> - `random-uuid` — tạo ID duy nhất cho cluster Kafka
-> - `format` — khởi tạo thư mục lưu trữ với cluster ID đó (chỉ cần làm 1 lần)
 sudo systemctl start kafka
 # Tạo lại topic
 /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
     --create --topic raw_pcap_segments --partitions 1 --replication-factor 1
 ```
+
+> - `random-uuid` — tạo ID duy nhất cho cluster Kafka
+> - `format` — khởi tạo thư mục lưu trữ với cluster ID đó (chỉ cần làm 1 lần)
 
 ### ❌ ClickHouse TTL — xóa dữ liệu cũ thủ công
 
