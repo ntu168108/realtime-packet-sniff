@@ -5,7 +5,7 @@ Requires=kafka.service
 [Service]
 User=root
 WorkingDirectory=/home/tu/sniff
-ExecStart=/home/tu/sniff/.venv/bin/python -m integration.run_producer
+ExecStart=/usr/bin/python3 -m integration.run_producer
 Restart=always
 RestartSec=5
 [Install]
