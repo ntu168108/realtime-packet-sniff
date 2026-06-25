@@ -92,10 +92,10 @@ sudo apt-get update && sudo apt-get upgrade -y
 sudo apt-get install -y \
     curl wget git unzip \
     build-essential \
-    libpcap-dev \          # thư viện bắt gói tin (scapy cần)
-    tcpdump tcpreplay \    # công cụ kiểm tra traffic
+    libpcap-dev \
+    tcpdump tcpreplay \
     python3 python3-pip python3-venv \
-    openjdk-17-jre-headless   # Java cho Kafka
+    openjdk-17-jre-headless
 ```
 
 ### 1.2 Kiểm tra interface mạng
