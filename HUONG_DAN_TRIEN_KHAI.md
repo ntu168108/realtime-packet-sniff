@@ -94,7 +94,7 @@ sudo apt-get install -y \
     build-essential \
     libpcap-dev \
     tcpdump tcpreplay \
-    python3 python3-pip python3-venv \
+    python3 python3-pip \
     openjdk-17-jre-headless
 ```
 
@@ -102,7 +102,7 @@ sudo apt-get install -y \
 > - `build-essential` — compiler C/C++ (cần để build một số package)
 > - `libpcap-dev` — thư viện bắt gói tin, scapy cần để hoạt động
 > - `tcpdump tcpreplay` — công cụ kiểm tra và replay traffic
-> - `python3 python3-pip python3-venv` — Python runtime và môi trường ảo
+> - `python3 python3-pip` — Python runtime và pip
 > - `openjdk-17-jre-headless` — Java runtime cho Kafka
 
 ### 1.2 Kiểm tra interface mạng
@@ -155,7 +155,7 @@ pip install -r requirements-integration.txt  # Kafka, ClickHouse, pandas, ...
 | `numpy` | 1.26.4 | Vectorized scoring |
 | `pyyaml` | 6.0.1 | Đọc file cấu hình |
 
-### 2.4 Kiểm tra cài đặt
+### 2.3 Kiểm tra cài đặt
 
 ```bash
 python3 -c "from core import capture; from cli import app; print('core & cli OK')"
@@ -518,7 +518,7 @@ Requires=kafka.service
 
 [Service]
 WorkingDirectory=/home/tu/realtime-packet-sniff
-ExecStart=/home/tu/realtime-packet-sniff/.venv/bin/python -m integration.run_producer
+ExecStart=/usr/bin/python3 -m integration.run_producer
 Restart=always
 RestartSec=5
 
@@ -536,7 +536,7 @@ Requires=kafka.service
 [Service]
 User=tu
 WorkingDirectory=/home/tu/realtime-packet-sniff
-ExecStart=/home/tu/realtime-packet-sniff/.venv/bin/python -m integration.ec_consumer
+ExecStart=/usr/bin/python3 -m integration.ec_consumer
 Restart=always
 RestartSec=5
 
@@ -639,8 +639,7 @@ curl -fsSL https://raw.githubusercontent.com/ntu168108/realtime-packet-sniff/mai
 # Hoặc cài thủ công
 git clone https://github.com/ntu168108/realtime-packet-sniff.git
 cd realtime-packet-sniff
-python3 -m venv .venv && source .venv/bin/activate
-pip install .
+pip install --break-system-packages .
 
 # Sử dụng
 sudo sniff                          # Menu tương tác
