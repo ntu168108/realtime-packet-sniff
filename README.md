@@ -92,9 +92,8 @@ sudo sniff --stop                       # Stop daemon gracefully
 ```bash
 git clone https://github.com/ntu168108/realtime-packet-sniff.git
 cd realtime-packet-sniff
-python3 -m venv .venv && source .venv/bin/activate
-pip install .
-sudo .venv/bin/sniff -i eth0
+pip install --break-system-packages .
+sudo sniff -i eth0
 ```
 
 ## CLI reference
