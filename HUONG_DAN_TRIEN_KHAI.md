@@ -166,7 +166,7 @@ python3 -c "from integration import ec_consumer, clickhouse_sink; print('integra
 ### 3.1 Tải và giải nén Kafka
 
 ```bash
-KAFKA_VERSION="3.7.0"
+KAFKA_VERSION="4.3.1"
 wget https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz
 sudo tar -xzf kafka_2.13-${KAFKA_VERSION}.tgz -C /opt/
 sudo ln -sf /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka
