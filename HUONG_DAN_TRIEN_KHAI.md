@@ -129,10 +129,13 @@ cd realtime-packet-sniff
 ### 2.2 Cài các phụ thuộc Python
 
 ```bash
-# Phụ thuộc cho capture tool (scapy)
-pip install -r requirements.txt       # scapy và capture tool
-pip install -r requirements-integration.txt  # Kafka, ClickHouse, pandas, ...
+pip install --break-system-packages -r requirements.txt
+pip install --break-system-packages -r requirements-integration.txt
 ```
+
+> - `requirements.txt` — scapy và capture tool
+> - `requirements-integration.txt` — Kafka, ClickHouse, pandas, ...
+> - `--break-system-packages` — bắt buộc trên Ubuntu 24.04
 
 **Danh sách packages chính:**
 
