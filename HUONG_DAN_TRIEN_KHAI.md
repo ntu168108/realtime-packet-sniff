@@ -598,7 +598,7 @@ Nếu chỉ muốn dùng công cụ bắt gói tin (TUI/daemon/live stream) **kh
 
 ```bash
 # Cài đặt 1 lệnh
-curl -fsSL https://raw.githubusercontent.com/ntu168108/realtime-packet-sniff/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ntu168108/realtime-packet-sniff/main/install.sh -o /tmp/install.sh && sudo bash /tmp/install.sh
 
 # Hoặc cài thủ công
 git clone https://github.com/ntu168108/realtime-packet-sniff.git
