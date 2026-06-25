@@ -126,17 +126,7 @@ git clone https://github.com/ntu168108/realtime-packet-sniff.git
 cd realtime-packet-sniff
 ```
 
-### 2.2 Tạo môi trường ảo Python
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-> Từ đây trở đi, **luôn kích hoạt venv** trước khi chạy bất kỳ lệnh Python nào:  
-> `source /đường/dẫn/realtime-packet-sniff/.venv/bin/activate`
-
-### 2.3 Cài các phụ thuộc Python
+### 2.2 Cài các phụ thuộc Python
 
 ```bash
 # Phụ thuộc cho capture tool (scapy)
