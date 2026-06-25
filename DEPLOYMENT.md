@@ -574,7 +574,7 @@ If you only need the interactive capture tool (TUI / daemon / live NDJSON stream
 
 ```bash
 # One-liner
-curl -fsSL https://raw.githubusercontent.com/ntu168108/realtime-packet-sniff/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ntu168108/realtime-packet-sniff/main/install.sh -o /tmp/install.sh && sudo bash /tmp/install.sh
 
 # Or manually
 git clone https://github.com/ntu168108/realtime-packet-sniff.git
