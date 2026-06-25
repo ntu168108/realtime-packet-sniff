@@ -211,6 +211,8 @@ log.retention.bytes=2147483648
 # Tạo thư mục lưu trữ
 sudo mkdir -p /var/lib/kafka-logs
 sudo chown $USER:$USER /var/lib/kafka-logs
+sudo mkdir -p /opt/kafka/logs
+sudo chown $USER:$USER /opt/kafka/logs
 
 # Tạo cluster ID và format storage
 KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
