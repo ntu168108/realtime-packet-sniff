@@ -96,6 +96,7 @@ sudo apt-get install -y \
     tcpdump tcpreplay \
     python3 python3-pip python3-venv \
     openjdk-17-jre-headless
+```
 
 > - `curl wget git unzip` — download tools and source control
 > - `build-essential` — C/C++ compiler toolchain (required by some Python packages)
@@ -103,7 +104,6 @@ sudo apt-get install -y \
 > - `tcpdump tcpreplay` — traffic inspection and replay tools
 > - `python3 python3-pip python3-venv` — Python runtime and virtual environment support
 > - `openjdk-17-jre-headless` — Java runtime required by Kafka
-```
 
 ### 1.2 Identify your network interface
 
@@ -177,19 +177,19 @@ KAFKA_VERSION="4.3.1"
 wget https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz
 sudo tar -xzf kafka_2.13-${KAFKA_VERSION}.tgz -C /opt/
 sudo ln -sf /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka
+```
 
 > - `wget ...tgz` — download the latest Kafka release
 > - `tar -xzf ... -C /opt/` — extract into `/opt/`
 > - `ln -sf` — create a `/opt/kafka` symlink pointing at the versioned directory (makes future upgrades easier)
-```
 
 ### 3.2 Apply the Kafka configuration
 
 ```bash
 sudo cp deploy/kafka/server.properties /opt/kafka/config/kraft/server.properties
+```
 
 > Copies the pre-configured KRaft `server.properties` from the repo over Kafka's default config.
-```
 
 Key settings in `server.properties`:
 
@@ -216,8 +216,6 @@ KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
     -t $KAFKA_CLUSTER_ID \
     -c /opt/kafka/config/kraft/server.properties
 
-> - `random-uuid` — generates a unique cluster ID
-> - `format` — initialises the storage directory with that cluster ID (one-time setup only)
 
 # Start Kafka temporarily to create the topic
 /opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties &
@@ -236,6 +234,9 @@ sleep 10
 /opt/kafka/bin/kafka-server-stop.sh
 ```
 
+> - `random-uuid` — generates a unique cluster ID
+> - `format` — initialises the storage directory with that cluster ID (one-time setup only)
+
 ---
 
 ## Step 4 — ClickHouse
@@ -253,13 +254,13 @@ echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] \
 
 sudo apt-get update
 sudo apt-get install -y clickhouse-server clickhouse-client
+```
 
 > - `apt-transport-https ca-certificates` — enables apt to download packages over HTTPS
 > - `gpg --dearmor` — adds the ClickHouse GPG signing key so apt can verify packages
 > - `tee /etc/apt/sources.list.d/clickhouse.list` — registers the ClickHouse apt repository
 > - `clickhouse-server` — the main database service
 > - `clickhouse-client` — CLI for running queries and verifying the install
-```
 
 ### 4.2 Start ClickHouse
 
@@ -292,10 +293,10 @@ echo "deb [signed-by=/usr/share/keyrings/grafana.key] \
 
 sudo apt-get update
 sudo apt-get install -y grafana
+```
 
 > - `gpg --dearmor` — adds the Grafana GPG signing key
 > - `tee /etc/apt/sources.list.d/grafana.list` — registers the Grafana apt repository
-```
 
 ### 5.2 Install the ClickHouse data source plugin
 
@@ -310,13 +311,14 @@ sudo cp deploy/grafana/datasource.yaml  /etc/grafana/provisioning/datasources/
 sudo cp deploy/grafana/dashboards.yaml  /etc/grafana/provisioning/dashboards/
 sudo cp deploy/grafana/dashboard.json   /var/lib/grafana/dashboards/
 
-> - `datasource.yaml` — auto-configures the ClickHouse connection on Grafana startup
-> - `dashboards.yaml` — tells Grafana where to find the dashboard files
-> - `dashboard.json` — the IDS pipeline dashboard
 
 sudo systemctl enable grafana-server
 sudo systemctl start grafana-server
 ```
+
+> - `datasource.yaml` — auto-configures the ClickHouse connection on Grafana startup
+> - `dashboards.yaml` — tells Grafana where to find the dashboard files
+> - `dashboard.json` — the IDS pipeline dashboard
 
 > **Access Grafana:** `http://<server-ip>:3000`  
 > Default credentials: `admin` / `admin` (change on first login)  
@@ -333,18 +335,22 @@ The feature extraction stage uses **Argus** (flow records) and **Zeek** (deep pa
 ```bash
 sudo apt-get install -y argus-server argus-client
 
-> - `argus-server` — generates flow records from pcap files
-> - `argus-client` (`ra`) — tool for reading and querying flow records
 
 argus -V && ra -V
 ```
 
+> - `argus-server` — generates flow records from pcap files
+> - `argus-client` (`ra`) — tool for reading and querying flow records
+
 > If the apt package is not available, build from source:
 > ```bash
+
+```
+
 > wget https://openargus.org/download/argus-3.0.8.tar.gz
 > tar xzf argus-3.0.8.tar.gz && cd argus-3.0.8
 > ./configure && make && sudo make install
-> ```
+> 
 
 ### 6.2 Install Zeek
 
@@ -751,12 +757,13 @@ KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
     -t $KAFKA_CLUSTER_ID \
     -c /opt/kafka/config/kraft/server.properties
 
-> - `random-uuid` — generates a unique cluster ID
-> - `format` — initialises the storage directory with that cluster ID (one-time setup only)
 sudo systemctl start kafka
 /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
     --create --topic raw_pcap_segments --partitions 1 --replication-factor 1
 ```
+
+> - `random-uuid` — generates a unique cluster ID
+> - `format` — initialises the storage directory with that cluster ID (one-time setup only)
 
 ### ❌ Purge old ClickHouse data manually
 
