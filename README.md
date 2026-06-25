@@ -66,7 +66,7 @@ idempotent: ClickHouse `ReplacingMergeTree` deduplicates by
 ### One-line install (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ntu168108/realtime-packet-sniff/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ntu168108/realtime-packet-sniff/main/install.sh -o /tmp/install.sh && sudo bash /tmp/install.sh
 ```
 
 The installer checks for Python 3.8+, libpcap, and disk space, then installs
