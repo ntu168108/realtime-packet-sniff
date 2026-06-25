@@ -207,10 +207,8 @@ log.retention.bytes=2147483648        # or 2 GiB per partition
 ### 3.3 Format storage and create the topic
 
 ```bash
-sudo mkdir -p /var/lib/kafka-logs
-sudo chown $USER:$USER /var/lib/kafka-logs
-sudo mkdir -p /opt/kafka/logs
-sudo chown $USER:$USER /opt/kafka/logs
+sudo mkdir -p /var/lib/kafka-logs /opt/kafka/logs
+sudo chown $USER:$USER /var/lib/kafka-logs /opt/kafka/logs
 
 # Generate a cluster ID and format storage
 KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
@@ -303,7 +301,7 @@ sudo apt-get install -y grafana
 ### 5.2 Install the ClickHouse data source plugin
 
 ```bash
-sudo grafana-cli plugins install grafana-clickhouse-datasource
+sudo grafana cli plugins install grafana-clickhouse-datasource
 ```
 
 ### 5.3 Provision the data source and dashboard automatically
@@ -473,6 +471,12 @@ sudo sed -i "s|/home/tu/realtime-packet-sniff|${REPO_DIR}|g" \
     /etc/systemd/system/ec-consumer.service
 
 sudo sed -i "s|User=tu|User=${USER}|g" /etc/systemd/system/ec-consumer.service
+
+# Thêm PYTHONPATH để systemd tìm thấy packages đã cài với --break-system-packages
+PYPATH=$(python3 -c "import site; print(site.getusersitepackages())")
+sudo sed -i "s|Environment=PYTHONPATH=.*|Environment=PYTHONPATH=${PYPATH}|g" \
+    /etc/systemd/system/sniff-producer.service \
+    /etc/systemd/system/ec-consumer.service
 ```
 
 ### 9.3 Unit file reference
