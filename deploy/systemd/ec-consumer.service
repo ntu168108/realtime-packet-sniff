@@ -5,7 +5,7 @@ Requires=kafka.service
 [Service]
 User=tu
 WorkingDirectory=/home/tu/sniff
-ExecStart=/home/tu/sniff/.venv/bin/python -m integration.ec_consumer
+ExecStart=/usr/bin/python3 -m integration.ec_consumer
 Restart=always
 RestartSec=5
 [Install]
