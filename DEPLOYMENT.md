@@ -186,7 +186,7 @@ sudo ln -sf /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka
 ### 3.2 Apply the Kafka configuration
 
 ```bash
-sudo cp deploy/kafka/server.properties /opt/kafka/config/kraft/server.properties
+sudo cp deploy/kafka/server.properties /opt/kafka/config/server.properties
 ```
 
 > Copies the pre-configured KRaft `server.properties` from the repo over Kafka's default config.
@@ -214,11 +214,11 @@ sudo chown $USER:$USER /var/lib/kafka-logs
 KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
 /opt/kafka/bin/kafka-storage.sh format \
     -t $KAFKA_CLUSTER_ID \
-    -c /opt/kafka/config/kraft/server.properties
+    -c /opt/kafka/config/server.properties
 
 
 # Start Kafka temporarily to create the topic
-/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties &
+/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties &
 sleep 10
 
 # Create the topic
@@ -482,7 +482,7 @@ Description=Apache Kafka (KRaft)
 After=network.target
 
 [Service]
-ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties
+ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties
 ExecStop=/opt/kafka/bin/kafka-server-stop.sh
 Restart=always
 RestartSec=5
@@ -754,7 +754,7 @@ sudo rm -rf /var/lib/kafka-logs
 KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
 /opt/kafka/bin/kafka-storage.sh format \
     -t $KAFKA_CLUSTER_ID \
-    -c /opt/kafka/config/kraft/server.properties
+    -c /opt/kafka/config/server.properties
 
 sudo systemctl start kafka
 /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
