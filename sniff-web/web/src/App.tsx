@@ -6,6 +6,9 @@ import { getToken, setToken } from './hooks/useApi';
 import Dashboard from './pages/Dashboard';
 import Capture from './pages/Capture';
 import Services from './pages/Services';
+import PcapFiles from './pages/PcapFiles';
+import ClickHousePage from './pages/ClickHouse';
+import KafkaPage from './pages/Kafka';
 
 export default function App() {
   const [token, setTok] = useState<string | null>(getToken());
@@ -84,6 +87,9 @@ function AuthenticatedLayout({ onLogout }: { onLogout: () => void }) {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/capture" element={<Capture />} />
           <Route path="/services" element={<Services />} />
+          <Route path="/pcap" element={<PcapFiles />} />
+          <Route path="/clickhouse" element={<ClickHousePage />} />
+          <Route path="/kafka" element={<KafkaPage />} />
           {/* additional pages added in subsequent tasks */}
         </Routes>
       </main>
