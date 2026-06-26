@@ -737,7 +737,7 @@ python3 MODULE_PHANLOAI/dos_classifier.py \
 > Web GUI cho phép điều khiển capture + 5 services từ trình duyệt.
 
 ```bash
-sudo bash scripts/install_web.sh
+sudo bash sniff-web/scripts/install_web.sh
 ```
 
 Lệnh này sẽ:
