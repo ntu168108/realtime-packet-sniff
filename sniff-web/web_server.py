@@ -300,3 +300,58 @@ def api_conversations(n: int = 20, user=Depends(require_user)):
     if not eng or not getattr(eng, "is_running", False):
         return []
     return eng.get_top_conversations(n)
+
+
+# ---------------------------------------------------------------------------
+# Systemd service control (Task 5)
+# ---------------------------------------------------------------------------
+
+import subprocess
+
+SERVICE_ALLOWLIST = {"kafka", "sniff-producer", "ec-consumer", "clickhouse-server", "grafana-server", "sniff-web"}
+SERVICE_ACTIONS = {"start", "stop", "restart", "enable", "disable"}
+
+
+def run_systemctl(name: str, action: str) -> dict:
+    if name not in SERVICE_ALLOWLIST or action not in SERVICE_ACTIONS:
+        raise ValueError(f"Disallowed: {action} {name}")
+    try:
+        proc = subprocess.run(["sudo", "-n", "systemctl", action, name],
+                              capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "stdout": "", "stderr": "systemctl timeout", "exit_code": 124}
+    except FileNotFoundError:
+        return {"ok": False, "stdout": "", "stderr": "sudo not found", "exit_code": 127}
+    return {"ok": proc.returncode == 0, "stdout": proc.stdout,
+            "stderr": proc.stderr, "exit_code": proc.returncode}
+
+
+def list_services_status() -> list:
+    out = []
+    for name in sorted(SERVICE_ALLOWLIST):
+        try:
+            proc = subprocess.run(["systemctl", "is-active", name],
+                                  capture_output=True, text=True, timeout=5)
+            active = proc.stdout.strip() == "active"
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            active = False
+        out.append({"name": name, "active": active})
+    return out
+
+
+@app.get("/api/services/list")
+def api_services_list(user=Depends(require_user)):
+    return list_services_status()
+
+
+@app.post("/api/services/{name}/{action}")
+def api_services_action(name: str, action: str, user=Depends(require_user)):
+    if name not in SERVICE_ALLOWLIST:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Service '{name}' not in allowlist")
+    if action not in SERVICE_ACTIONS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Action '{action}' not allowed")
+    result = run_systemctl(name, action)
+    if not result["ok"]:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            result["stderr"] or f"systemctl {action} {name} failed")
+    return {"ok": True, "exit_code": result["exit_code"]}
