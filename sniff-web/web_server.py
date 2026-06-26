@@ -153,3 +153,150 @@ def change_password(username: str, new_password: str) -> dict:
     global _PASSWORD_HASH
     _PASSWORD_HASH = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Capture layer (Task 4): FastAPI app + lifecycle endpoints
+# ---------------------------------------------------------------------------
+
+import sys
+from fastapi import FastAPI
+from pydantic import BaseModel, Field
+
+try:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from core.capture import CaptureEngine, get_interfaces, validate_interface, get_interface_info
+    from core.decoder import decode_packet
+except ImportError as e:
+    logger.warning("Could not import core.capture: %s", e)
+    CaptureEngine = None
+    get_interfaces = None
+    validate_interface = None
+    get_interface_info = None
+    decode_packet = None
+
+PERSISTENCE_DIR_OVERRIDE = None
+_test_engine_factory = None
+
+
+def _make_engine(**kwargs):
+    if _test_engine_factory is not None:
+        return _test_engine_factory(**kwargs)
+    if CaptureEngine is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Capture engine unavailable")
+    return CaptureEngine(**kwargs)
+
+
+class StartBody(BaseModel):
+    interface: str
+    bpf_filter: str = ""
+    snaplen: int = Field(default=65535, ge=64, le=65535)
+    promisc: bool = True
+    auto_restore: bool = True
+
+
+app = FastAPI(title="SNIFF Web GUI", version="0.3.0")
+
+
+@app.post("/api/auth/login")
+def api_login(body: dict):
+    return login(body.get("username"), body.get("password"))
+
+
+@app.on_event("startup")
+async def _on_startup():
+    cfg = load_web_config("config.yaml")
+    persistence = PERSISTENCE_DIR_OVERRIDE or cfg["persistence_dir"]
+    configure_auth(username=cfg["username"], password_hash=cfg["password_hash"],
+                   jwt_secret=cfg["jwt_secret"], jwt_expiry=cfg["jwt_expiry_seconds"])
+    app.state.persistence_dir = persistence
+    if cfg["auto_restore"]:
+        last = read_last_capture(persistence)
+        if last and last.get("auto_restore") and last.get("interface"):
+            if validate_interface(last["interface"]):
+                logger.info("Auto-restoring capture on %s", last["interface"])
+                app.state.engine = _make_engine(
+                    interface=last["interface"], bpf_filter=last.get("bpf_filter", ""),
+                    snaplen=last.get("snaplen", 65535), promisc=last.get("promisc", True))
+                app.state.engine.setup()
+                app.state.engine.start()
+            else:
+                logger.warning("Auto-restore skipped: interface %s not found", last.get("interface"))
+
+
+@app.on_event("shutdown")
+async def _on_shutdown():
+    eng = getattr(app.state, "engine", None)
+    if eng and getattr(eng, "is_running", False):
+        eng.stop()
+
+
+@app.get("/api/interfaces")
+def api_interfaces(user=Depends(require_user)):
+    if get_interfaces is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "core.capture unavailable")
+    return [get_interface_info(i) for i in get_interfaces()]
+
+
+@app.post("/api/capture/start")
+def api_start(body: StartBody, user=Depends(require_user)):
+    if not validate_interface(body.interface):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Interface '{body.interface}' not found")
+    eng = getattr(app.state, "engine", None)
+    if eng and getattr(eng, "is_running", False):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Capture already running")
+    new_engine = _make_engine(interface=body.interface, bpf_filter=body.bpf_filter,
+                              snaplen=body.snaplen, promisc=body.promisc)
+    new_engine.setup()
+    new_engine.start()
+    app.state.engine = new_engine
+    write_last_capture(app.state.persistence_dir, {
+        "interface": body.interface, "bpf_filter": body.bpf_filter, "snaplen": body.snaplen,
+        "promisc": body.promisc, "auto_restore": body.auto_restore,
+        "saved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+    return {"ok": True}
+
+
+@app.post("/api/capture/stop")
+def api_stop(user=Depends(require_user)):
+    eng = getattr(app.state, "engine", None)
+    if not eng or not getattr(eng, "is_running", False):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No capture running")
+    eng.stop()
+    return {"ok": True}
+
+
+@app.post("/api/capture/toggle-pause")
+def api_toggle_pause(user=Depends(require_user)):
+    eng = getattr(app.state, "engine", None)
+    if not eng or not getattr(eng, "is_running", False):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No capture running")
+    paused = eng.toggle_pause()
+    return {"paused": paused}
+
+
+@app.get("/api/capture/status")
+def api_status(user=Depends(require_user)):
+    eng = getattr(app.state, "engine", None)
+    if not eng:
+        return {"running": False, "paused": False, "interface": None,
+                "packets": 0, "bytes": 0, "dropped": 0, "pps": 0, "bps": 0,
+                "protocols": {}, "uptime": 0}
+    return eng.get_status()
+
+
+@app.get("/api/capture/last-config")
+def api_last_config(user=Depends(require_user)):
+    cfg = read_last_capture(app.state.persistence_dir)
+    if cfg is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No last config")
+    return cfg
+
+
+@app.get("/api/capture/conversations")
+def api_conversations(n: int = 20, user=Depends(require_user)):
+    eng = getattr(app.state, "engine", None)
+    if not eng or not getattr(eng, "is_running", False):
+        return []
+    return eng.get_top_conversations(n)
