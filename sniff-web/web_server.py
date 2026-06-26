@@ -408,3 +408,71 @@ def api_clickhouse_counts(user=Depends(require_user)):
     except Exception as exc:
         logger.warning("ClickHouse counts failed: %s", exc)
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "ClickHouse unavailable")
+
+
+# ---------------------------------------------------------------------------
+# Kafka admin (Task 7): topics list + consumer-group lag
+# ---------------------------------------------------------------------------
+
+KAFKA_BOOTSTRAP = "localhost:9092"
+
+
+def list_kafka_topics() -> dict:
+    from kafka.admin import KafkaAdminClient
+    admin = KafkaAdminClient(bootstrap_servers=KAFKA_BOOTSTRAP, request_timeout_ms=5000)
+    try:
+        topics_meta = admin.describe_topics()
+    finally:
+        admin.close()
+    out = []
+    for t in topics_meta:
+        if t["topic"].startswith("__"):
+            continue
+        partitions = t.get("partitions", [])
+        replication = len(partitions[0].get("replicas", [])) if partitions else 0
+        out.append({"name": t["topic"], "partitions": len(partitions), "replication": replication})
+    return {"topics": sorted(out, key=lambda x: x["name"])}
+
+
+def kafka_lag(group: str) -> dict:
+    from kafka import KafkaConsumer, TopicPartition
+    consumer = KafkaConsumer(bootstrap_servers=KAFKA_BOOTSTRAP, group_id=group,
+                             enable_auto_commit=False, consumer_timeout_ms=2000)
+    try:
+        partitions = consumer.partitions_for_topic("raw_pcap_segments") or set()
+        tps = [TopicPartition("raw_pcap_segments", p) for p in partitions]
+        if not tps:
+            return {"group": group, "total_lag": 0, "partitions": []}
+        consumer.assign(tps)
+        end_offsets = consumer.end_offsets(tps)
+        total = 0
+        per_partition = []
+        for tp in tps:
+            try:
+                committed = consumer.committed(tp) or 0
+            except Exception:
+                committed = 0
+            lag = max(0, end_offsets[tp] - committed)
+            total += lag
+            per_partition.append({"topic": tp.topic, "partition": tp.partition, "lag": lag})
+        return {"group": group, "total_lag": total, "partitions": per_partition}
+    finally:
+        consumer.close()
+
+
+@app.get("/api/kafka/topics")
+def api_kafka_topics(user=Depends(require_user)):
+    try:
+        return list_kafka_topics()
+    except Exception as exc:
+        logger.warning("Kafka topics failed: %s", exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Kafka unavailable")
+
+
+@app.get("/api/kafka/lag")
+def api_kafka_lag(group: str = "ec-consumer", user=Depends(require_user)):
+    try:
+        return kafka_lag(group)
+    except Exception as exc:
+        logger.warning("Kafka lag failed: %s", exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Kafka unavailable")
