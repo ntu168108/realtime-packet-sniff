@@ -84,3 +84,72 @@ if __name__ == "__main__":  # pragma: no cover
     import sys
     cfg_path = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
     print(load_web_config(cfg_path))
+
+
+# ---------------------------------------------------------------------------
+# Auth layer (Task 2): JWT + bcrypt
+# ---------------------------------------------------------------------------
+
+import secrets
+import time
+import bcrypt
+import jwt
+from fastapi import Depends, Header, HTTPException, status
+
+_USERNAME = "admin"
+_PASSWORD_HASH = ""
+_JWT_SECRET = ""
+_JWT_EXPIRY = 86400
+
+
+def configure_auth(username: str, password_hash: str, jwt_secret: str, jwt_expiry: int) -> None:
+    global _USERNAME, _PASSWORD_HASH, _JWT_SECRET, _JWT_EXPIRY
+    _USERNAME = username
+    _PASSWORD_HASH = password_hash
+    _JWT_SECRET = jwt_secret or secrets.token_urlsafe(32)
+    _JWT_EXPIRY = jwt_expiry
+
+
+def make_token(payload: dict, secret=None, expiry_s=None) -> str:
+    sec = secret or _JWT_SECRET
+    exp = expiry_s if expiry_s is not None else _JWT_EXPIRY
+    now = int(time.time())
+    full = {**payload, "iat": now, "exp": now + exp, "sub": payload.get("sub", _USERNAME)}
+    return jwt.encode(full, sec, algorithm="HS256")
+
+
+def decode_token(token: str, secret=None) -> dict:
+    sec = secret or _JWT_SECRET
+    return jwt.decode(token, sec, algorithms=["HS256"])
+
+
+def require_user(authorization: str = Header(None)) -> dict:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = decode_token(token)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
+    return {"username": payload["sub"]}
+
+
+def login(username: str, password: str) -> dict:
+    if username != _USERNAME:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
+    if not _PASSWORD_HASH:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Auth not configured")
+    if not bcrypt.checkpw(password.encode("utf-8"), _PASSWORD_HASH.encode("utf-8")):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
+    token = make_token({"sub": username})
+    return {"token": token, "expires_in": _JWT_EXPIRY}
+
+
+def change_password(username: str, new_password: str) -> dict:
+    if username != _USERNAME:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid user")
+    global _PASSWORD_HASH
+    _PASSWORD_HASH = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode()
+    return {"ok": True}
