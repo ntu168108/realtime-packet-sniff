@@ -9,6 +9,8 @@ import Services from './pages/Services';
 import PcapFiles from './pages/PcapFiles';
 import ClickHousePage from './pages/ClickHouse';
 import KafkaPage from './pages/Kafka';
+import Config from './pages/Config';
+import System from './pages/System';
 
 export default function App() {
   const [token, setTok] = useState<string | null>(getToken());
@@ -90,7 +92,8 @@ function AuthenticatedLayout({ onLogout }: { onLogout: () => void }) {
           <Route path="/pcap" element={<PcapFiles />} />
           <Route path="/clickhouse" element={<ClickHousePage />} />
           <Route path="/kafka" element={<KafkaPage />} />
-          {/* additional pages added in subsequent tasks */}
+          <Route path="/config" element={<Config />} />
+          <Route path="/system" element={<System />} />
         </Routes>
       </main>
     </div>
