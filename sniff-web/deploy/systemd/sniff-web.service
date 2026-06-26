@@ -5,10 +5,18 @@ Documentation=https://github.com/ntu168108/realtime-packet-sniff
 
 [Service]
 Type=simple
+# User is patched by install_web.sh to the real user that invoked sudo.
+# Default to `tu` for legacy installs — overridden on first install.
 User=tu
+# WorkingDirectory MUST be the directory containing web_server.py.
+# Running `uvicorn sniff-web.web_server:app` from any other directory will
+# FAIL because Python refuses to import modules whose name contains a
+# hyphen (`-`). Therefore ExecStart uses `web_server:app` directly.
 WorkingDirectory=/opt/realtime-packet-sniff/sniff-web
+# PYTHONPATH is set by install_web.sh from `python3 -c "import site; ..."`
+# so the service picks up the same site-packages the installer used.
 Environment=PYTHONPATH=/home/tu/.local/lib/python3.12/site-packages
-ExecStart=/usr/bin/python3 -m uvicorn sniff-web.web_server:app --host 0.0.0.0 --port 8000 --workers 1
+ExecStart=/usr/bin/python3 -m uvicorn web_server:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=5
 StandardOutput=journal

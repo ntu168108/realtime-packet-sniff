@@ -244,24 +244,55 @@ sleep 10
 
 ## Bước 4 — Cài ClickHouse
 
+> **Lỗi đã sửa:** URL GPG key trong phiên bản cũ nằm ở đường dẫn `/rpm/` (cho RedHat)
+> gây nhầm lẫn. ClickHouse dùng chung một signing key cho cả deb và rpm, đường dẫn
+> mới đúng ngữ nghĩa hơn và ClickHouse cũng ghi rõ trong docs chính thức. Ngoài ra
+> `clickhouse-server` ở Ubuntu 24.04 có hỏi password mặc định trong dialog ncurses —
+> phải đặt trước qua env var và `DEBIAN_FRONTEND=noninteractive` để cài không bị treo.
+
 ### 4.1 Cài ClickHouse qua apt
 
 ```bash
-sudo apt-get install -y apt-transport-https ca-certificates
-curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' | \
-    sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
+# Cài trước prereqs + đặt password mặc định cho user `default`
+# để package post-install script không bị treo ở dialog ncurses.
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    apt-transport-https ca-certificates dirmngr gnupg
 
-echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] \
+# Thêm ClickHouse GPG key (dùng đường dẫn /deb/ cho hệ thống Debian/Ubuntu,
+# key này cũng được ClickHouse ghi trong docs chính thức tại clickhouse.com/docs/install/debian_ubuntu).
+# (Đường dẫn /rpm/lts/... vẫn hoạt động nhưng không nhất quán — phiên bản cũ đã
+#  dùng sai URL này và gây lỗi "key not found" trên một số bản Ubuntu.)
+sudo mkdir -p /usr/share/keyrings
+curl -fsSL 'https://packages.clickhouse.com/deb/lts/release.key' 2>/dev/null \
+    | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg 2>/dev/null \
+    || curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' \
+        | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
+
+# Repo deb (component 'main' trỏ vào dists/stable/main — cấu trúc thực tế của repo)
+ARCH=$(dpkg --print-architecture)
+echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg arch=${ARCH}] \
     https://packages.clickhouse.com/deb stable main" | \
     sudo tee /etc/apt/sources.list.d/clickhouse.list
 
+# Pre-set default user password để tránh dialog tương tác.
+# Đổi 'ClickHousePass' thành mật khẩu thật của bạn.
+export CLICKHOUSE_DB=default
+export CLICKHOUSE_USER=default
+export CLICKHOUSE_PASSWORD=ClickHousePass
+export CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+
 sudo apt-get update
-sudo apt-get install -y clickhouse-server clickhouse-client
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    clickhouse-server clickhouse-client
 ```
 
-> - `apt-transport-https ca-certificates` — cho phép apt tải qua HTTPS
-> - `gpg --dearmor` — thêm GPG key để xác thực package ClickHouse
-> - `tee /etc/apt/sources.list.d/clickhouse.list` — thêm repo ClickHouse vào apt
+> - `apt-transport-https ca-certificates dirmngr gnupg` — prereqs cần thiết
+> - `CLICKHOUSE_PASSWORD` — đặt password trước để postinst script không hỏi
+> - `--force-confdef --force-confold` — không hỏi khi ghi đè config cũ
+> - **Quan trọng:** key `/deb/lts/release.key` có thể trả 404 trên một số mirror —
+>   lệnh trên đã có fallback dùng URL `/rpm/...` (vẫn trả 200, key là chung cho cả hai repo).
 > - `clickhouse-server` — service database chính
 > - `clickhouse-client` — CLI để query và kiểm tra
 
@@ -276,8 +307,12 @@ sudo systemctl status clickhouse-server
 ### 4.3 Kiểm tra kết nối
 
 ```bash
-clickhouse-client --query "SELECT version()"
+clickhouse-client --password 'ClickHousePass' --query "SELECT version()"
 # Kết quả mong đợi: số phiên bản như 24.3.1.2672
+
+# (Tuỳ chọn) lưu password để không phải gõ lại:
+echo "CLICKHOUSE_PASSWORD=ClickHousePass" | sudo tee /etc/clickhouse-client.env
+# rồi thêm vào ~/.bashrc: alias clickhouse-client='clickhouse-client --password "$(cat /etc/clickhouse-client.env | cut -d= -f2)"'
 ```
 
 ---
@@ -333,56 +368,120 @@ sudo systemctl start grafana-server
 
 ## Bước 6 — Cài Argus & Zeek
 
-Pipeline trích xuất đặc trưng dùng **Argus** (flow record) và **Zeek** (deep packet inspection).
+> **Lỗi đã sửa (phiên bản cũ):**
+> - URL Argus source cũ `https://openargus.org/download/argus-3.0.8.tar.gz` trả **404**.
+>   OpenArgus đã chuyển sang `qosient.com/argus/` — URL mới là
+>   `https://qosient.com/argus/src/argus-3.0.8.tar.gz`.
+> - Script `https://raw.githubusercontent.com/zeek/zeek-docs/master/scripts/zeek-setup.sh`
+>   không tồn tại nữa. Cách chính thức là thêm apt repo **OpenSUSE Build Service**
+>   (`security:zeek`) mà Zeek team khuyến nghị tại zeek.org/get-zeek/.
+> - Lệnh `apt-get install -y argus-server argus-client` và `zeek` không có sẵn
+>   trong repo mặc định của Ubuntu 22.04/24.04 — phải build from source hoặc dùng OBS.
+> - Một số package (đặc biệt libpcap-dev, bison, flex, cmake khi build Argus) hỏi
+>   xác nhận hoặc hiển thị ncurses dialog. Cần `DEBIAN_FRONTEND=noninteractive`.
 
 ### 6.1 Cài Argus
 
+**Cách 1 — Build từ source (khuyến nghị, hoạt động trên mọi Ubuntu):**
+
 ```bash
-sudo apt-get install -y argus-server argus-client
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    build-essential flex bison libpcap-dev libreadline-dev \
+    libsasl2-dev libssl-dev libcurl4-openssl-dev pkg-config
 
+# URL mới (qosient.com — openargus.org đã chuyển domain)
+ARGUS_VERSION="3.0.8"
+cd /tmp
+curl -fSL "https://qosient.com/argus/src/argus-${ARGUS_VERSION}.tar.gz" -o argus.tar.gz
+tar xzf argus.tar.gz && cd "argus-${ARGUS_VERSION}"
+./configure --prefix=/usr/local
+make -j"$(nproc)"
+sudo make install
+sudo ldconfig
 
-argus -V
-ra -V
+# Symlink để 'argus' và 'ra' nằm trong PATH mặc định
+sudo ln -sf /usr/local/bin/argus /usr/local/bin/argus-server
+sudo ln -sf /usr/local/bin/ra    /usr/local/bin/argus-client
 ```
 
-> - `argus-server` — service tạo flow record từ pcap
-> - `argus-client` (`ra`) — tool đọc và query flow record
+**Cách 2 — Thử apt (Ubuntu 24.04+ có thể đã có):**
 
-> Nếu apt không có, build từ source:
-> ```bash
-
+```bash
+if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y argus-server argus-client 2>/dev/null; then
+    echo "Argus cài thành công từ apt"
+else
+    echo "Argus không có trong apt repo — chuyển sang build from source (Cách 1)"
+    # Chạy lại Cách 1 ở trên
+fi
 ```
 
-> wget https://openargus.org/download/argus-3.0.8.tar.gz
-> tar xzf argus-3.0.8.tar.gz && cd argus-3.0.8
-> ./configure && make && sudo make install
-> 
+**Kiểm tra:**
+
+```bash
+argus -V 2>&1 | head -3
+ra -V    2>&1 | head -3
+which argus ra
+```
+
+> - `argus` (còn gọi là `argus-server`) — service tạo flow record từ pcap
+> - `ra` (còn gọi là `argus-client`) — tool đọc và query flow record
+> - Nếu lệnh `./configure` báo thiếu thư viện, cài thêm gói tương ứng rồi chạy lại.
 
 ### 6.2 Cài Zeek
 
+**Cách chính thức (khuyến nghị) — qua OpenSUSE Build Service:**
+
 ```bash
-# Cách nhanh nhất: dùng binary package
-sudo bash -c "$(wget -qO - https://raw.githubusercontent.com/zeek/zeek-docs/master/scripts/zeek-setup.sh)"
+# Cài GPG key cho OBS
+curl -fsSL https://download.opensuse.org/repositories/security:zeek/xUbuntu_24.04/Release.key \
+    | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/zeek-obs.gpg
 
-# Hoặc qua apt (nếu có sẵn):
-sudo apt-get install -y zeek
+# (Tuỳ chọn) Nếu bạn dùng Ubuntu 22.04 thay vì 24.04, đổi URL sau:
+#   https://download.opensuse.org/repositories/security:zeek/xUbuntu_22.04/
 
-# Kiểm tra
-zeek --version
+# Thêm repo vào apt
+echo "deb [signed-by=/etc/apt/trusted.gpg.d/zeek-obs.gpg] \
+    http://download.opensuse.org/repositories/security:/zeek/xUbuntu_24.04/ /" | \
+    sudo tee /etc/apt/sources.list.d/zeek.list
+
+sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y zeek
+
+# Sau khi cài, Zeek ở /opt/zeek/bin/. Thêm vào PATH + symlink:
+echo 'export PATH=/opt/zeek/bin:$PATH' | sudo tee /etc/profile.d/zeek.sh >/dev/null
+sudo chmod +x /etc/profile.d/zeek.sh
+sudo ln -sf /opt/zeek/bin/zeek    /usr/local/bin/zeek
+sudo ln -sf /opt/zeek/bin/zeekctl /usr/local/bin/zeekctl
+sudo ln -sf /opt/zeek/bin/zkg     /usr/local/bin/zkg 2>/dev/null || true
 ```
 
-Nếu Zeek cài vào `/opt/zeek`:
+> - OpenSUSE Build Service (`security:zeek`) là cách Zeek team khuyến nghị chính thức
+>   trên zeek.org/get-zeek/ — KHÔNG dùng script github cũ (đã bị xoá).
+> - Repo có sẵn cho Ubuntu 22.04, 24.04 và Debian 11, 12.
+> - Zeek CLI mặc định ở `/opt/zeek/bin/`, vì vậy cần symlink để tìm được qua `which`.
+
+**Cách thay thế — nếu OBS không dùng được (firewall, mirror chặn):**
 
 ```bash
-sudo ln -sf /opt/zeek/bin/zeek /usr/local/bin/zeek
+# Download binary tarball chính thức từ download.zeek.org
+ZEEK_VERSION=$(curl -fsSL https://api.github.com/repos/zeek/zeek/releases/latest \
+    | grep tag_name | head -1 | cut -d'"' -f4)
+cd /tmp
+curl -fSL "https://download.zeek.org/zeek-${ZEEK_VERSION}.linux-x86_64.tar.gz" -o zeek.tar.gz
+sudo tar -xzf zeek.tar.gz -C /opt/
+sudo mv /opt/zeek-* /opt/zeek 2>/dev/null || true
+sudo ln -sf /opt/zeek/bin/zeek    /usr/local/bin/zeek
 sudo ln -sf /opt/zeek/bin/zeekctl /usr/local/bin/zeekctl
 ```
 
 ### 6.3 Kiểm tra cả hai đã hoạt động
 
 ```bash
+# Phải thấy path của cả 3 binary
 which argus ra zeek
-argus -h 2>&1 | head -3
+
+# Confirm version
+argus -V 2>&1 | head -2
 zeek --version
 ```
 
@@ -735,24 +834,103 @@ python3 MODULE_PHANLOAI/dos_classifier.py \
 
 > Bước bổ sung tùy chọn, không cần thiết cho hệ thống IDS đã chạy ở Bước 10.
 > Web GUI cho phép điều khiển capture + 5 services từ trình duyệt.
+>
+> **Lỗi đã sửa (phiên bản cũ):**
+> 1. `install_web.sh` hardcode user `tu` → fail trên mọi user khác.
+> 2. Script chạy `npm install` mà không kiểm tra Node.js đã cài → fail trên Ubuntu server.
+> 3. Unit file dùng module `sniff-web.web_server:app` — Python không thể import
+>    module có dấu gạch ngang (`-`) trong tên, gây `ModuleNotFoundError` ngay khi start.
+> 4. PYTHONPATH trong unit file hardcode `/home/tu/.local/lib/python3.12/...` — chỉ
+>    đúng trên 1 máy cụ thể.
+> 5. Frontend build không được verify → service start thành công nhưng UI trả 404.
+
+### 11.1 Yêu cầu trước khi cài
+
+| Thành phần | Phiên bản tối thiểu | Lý do |
+|------------|----------------------|--------|
+| Python | 3.10+ | đã cài ở Bước 2 |
+| Node.js | **18+** (vite 5 không chạy trên Node 12) | build React frontend |
+| npm | 9+ | kèm theo Node 18+ |
+| disk trống | 800 MB | node_modules (~500MB) + frontend build |
+
+Phiên bản cũ của `install_web.sh` không tự cài Node.js — phải chạy trên Ubuntu server
+thuần (không có node) sẽ fail ngay bước `npm install`. Phiên bản mới đã tự động cài
+Node.js qua apt (hoặc NodeSource 20.x nếu bản apt quá cũ).
+
+### 11.2 Cài Web GUI
 
 ```bash
 sudo bash sniff-web/scripts/install_web.sh
 ```
 
-Lệnh này sẽ:
-1. Cài `sniff-web/requirements-web.txt` (fastapi, uvicorn, pyjwt, bcrypt, clickhouse-driver, kafka-python-ng, psutil)
-2. Build frontend (`sniff-web/web/dist/`)
-3. Setcap `cap_net_admin,cap_net_raw+ep` cho Python (capture không cần root)
-4. Cài sudoers NOPASSWD (giới hạn systemctl + 6 services)
-5. Cài systemd unit `sniff-web.service` (User=tu)
-6. Khởi động sniff-web trên port 8000
+Lệnh này sẽ (7 bước, idempotent — chạy lại không hỏng):
+1. **Python deps**: cài `sniff-web/requirements-web.txt` (fastapi, uvicorn, pyjwt, bcrypt,
+   clickhouse-driver, kafka-python-ng, psutil). Tự dùng `--break-system-packages` trên
+   Ubuntu 24.04.
+2. **Node + frontend**: cài Node.js nếu thiếu; build `sniff-web/web/dist/` qua
+   `npm run build`. **Verify** `dist/index.html` tồn tại — nếu không, script fail
+   thay vì âm thầm để service chạy không có UI.
+3. **setcap**: cấp `cap_net_admin,cap_net_raw+ep` cho `/usr/bin/python3` để capture
+   raw socket không cần root.
+4. **sudoers**: cài `/etc/sudoers.d/sniff-web` (allowlist systemctl + 6 services). Tự
+   động patch user `tu` → `${SUDO_USER}` (user thật chạy sudo). Visudo validate
+   trước khi copy.
+5. **systemd unit**: render `sniff-web.service` từ template. Patch 3 thứ:
+   - `WorkingDirectory=/opt/realtime-packet-sniff/sniff-web` → `${REPO_DIR}/sniff-web`
+   - `User=tu` → `${SUDO_USER}`
+   - `Environment=PYTHONPATH=/home/tu/.local/...` → đường dẫn site-packages thật
+     lấy từ `python3 -c "import site; print(site.getusersitepackages())"`
+   - **Quan trọng:** `ExecStart=... uvicorn web_server:app ...` (KHÔNG phải
+     `sniff-web.web_server:app` vì Python không import được module có dấu `-`).
+6. **state dirs**: tạo `/var/lib/sniff-web/` (lưu `last_capture.json`) và
+   `/var/log/sniff-web/`, chown cho user thật.
+7. **enable + start**: `systemctl enable + restart sniff-web`, đợi 2s rồi check
+   `is-active` — báo RUNNING/FAILED ngay.
 
-**Mở:** `http://<server>:8000` — đăng nhập `admin` / `sniff` (đổi pass ngay trong `config.yaml`).
+### 11.3 Mở Web GUI
 
-**Tự khởi động capture sau reboot:** Bấm Start trong UI với checkbox "auto-restore on reboot". Config được lưu vào `/var/lib/sniff-web/last_capture.json`; lifespan startup đọc và tự restart capture.
+**Mở:** `http://<server>:8000` — đăng nhập `admin` / `sniff` (đổi pass ngay trong
+`config.yaml`).
 
-Xem `sniff-web/docs/WEB_GUI.md` để biết chi tiết.
+**Tự khởi động capture sau reboot:** Bấm Start trong UI với checkbox
+"auto-restore on reboot". Config được lưu vào
+`/var/lib/sniff-web/last_capture.json`; lifespan startup đọc và tự restart capture.
+
+### 11.4 Lỗi thường gặp & fix
+
+| Triệu chứng | Nguyên nhân | Cách sửa |
+|-------------|-------------|----------|
+| `ModuleNotFoundError: No module named 'sniff_web'` (hoặc `sniff-web.web_server`) | Unit file cũ dùng module sai (đã sửa ở trên) | Re-run `sudo bash sniff-web/scripts/install_web.sh` |
+| `setcap` OK nhưng vẫn `Operation not permitted` khi capture | Python binary khác (`/usr/bin/python3.12`) — setcap chỉ áp dụng đúng binary | Cài lại Python qua apt rồi re-run script |
+| `npm: command not found` | Script cũ không cài Node | Re-run script — bản mới tự cài Node 18+ qua NodeSource |
+| `vite build` fail vì Node < 18 | Ubuntu 22.04 mặc định Node 12 | Re-run script — bản mới tự nâng lên Node 20.x |
+| Service start xong nhưng UI trả 404 | Frontend build thiếu | Re-run script — bản mới verify `dist/index.html` |
+| `chown: invalid user: 'tu:tu'` | User không tồn tại | Re-run script — bản mới dùng `${SUDO_USER}` thực |
+| Login fail với `admin/sniff` | Config chưa có password hash thật | Xem mục 11.5 dưới đây |
+
+### 11.5 Đổi mật khẩu admin
+
+```bash
+# 1. Tạo bcrypt hash cho password mới
+NEW_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'MAT_KHAU_CUA_BAN', bcrypt.gensalt()).decode())")
+echo "Hash: $NEW_HASH"
+
+# 2. Ghi vào config.yaml
+python3 -c "
+import yaml
+with open('config.yaml') as f:
+    cfg = yaml.safe_load(f) or {}
+cfg.setdefault('web', {})['password_hash'] = '$NEW_HASH'
+with open('config.yaml', 'w') as f:
+    yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False)
+print('Updated')
+"
+
+# 3. Restart service để nạp config mới
+sudo systemctl restart sniff-web
+```
+
+Xem `sniff-web/docs/WEB_GUI.md` để biết chi tiết API và UI khác.
 
 ## Xử lý sự cố thường gặp
 
@@ -842,6 +1020,83 @@ for family in dos exploits fuzzers generic analysis reconnaissance shellcode; do
     clickhouse-client --query \
         "ALTER TABLE network_ids.flows_${family} MODIFY TTL toDateTime(ts) + INTERVAL 7 DAY"
 done
+```
+
+### ❌ ClickHouse bị treo ở dialog "Set password for default user"
+
+Đây là lỗi **ncurses prompt** khi `clickhouse-server` postinst script chạy
+mà không có `DEBIAN_FRONTEND=noninteractive`. Fix bằng 1 trong 2 cách:
+
+```bash
+# Cách 1 — Reinstall không hỏi
+export CLICKHOUSE_PASSWORD=ClickHousePass
+sudo DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    clickhouse-server
+
+# Cách 2 — Nếu ClickHouse đã cài nhưng chưa có user default
+# Sửa /etc/clickhouse-server/users.xml: thêm user 'default' với <password>...</password>
+sudo systemctl restart clickhouse-server
+```
+
+### ❌ `sniff-web.service` fail với `ModuleNotFoundError: No module named 'sniff_web'`
+
+Lỗi này do **phiên bản cũ** của `sniff-web.service` template dùng module
+`sniff-web.web_server:app` — Python không thể import module có dấu gạch ngang
+(`-`) trong tên. Phiên bản mới đã đổi thành `web_server:app` (vì
+`WorkingDirectory` đã ở `sniff-web/`).
+
+```bash
+# Xem unit file hiện tại
+cat /etc/systemd/system/sniff-web.service | grep ExecStart
+
+# Nếu vẫn thấy 'sniff-web.web_server:app' → chạy lại installer để fix
+sudo bash sniff-web/scripts/install_web.sh
+
+# Hoặc patch thủ công
+sudo sed -i 's|uvicorn sniff-web.web_server:app|uvicorn web_server:app|' \
+    /etc/systemd/system/sniff-web.service
+sudo systemctl daemon-reload
+sudo systemctl restart sniff-web
+```
+
+### ❌ `npm: command not found` khi cài sniff-web
+
+```bash
+# Cài Node.js + npm (Ubuntu 22.04/24.04)
+if ! command -v node >/dev/null 2>&1; then
+    sudo apt-get install -y nodejs npm
+fi
+
+# Nếu phiên bản node cũ (<18), dùng NodeSource 20.x
+if [[ "$(node -e 'console.log(process.versions.node.split(".")[0])')" -lt 18 ]]; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -
+    sudo apt-get install -y nodejs
+fi
+
+# Sau đó re-run installer
+sudo bash sniff-web/scripts/install_web.sh
+```
+
+### ❌ `chown: invalid user: 'tu:tu'` khi cài sniff-web
+
+Phiên bản cũ hardcode user `tu` trong `install_web.sh`. Bản mới dùng
+`${SUDO_USER}` tự động. Nếu gặp lỗi này:
+
+```bash
+# Chạy lại qua sudo (không phải root trực tiếp) để SUDO_USER được set
+sudo bash sniff-web/scripts/install_web.sh
+
+# Hoặc patch thủ công nếu user thật không phải 'tu'
+REAL_USER=$(whoami)
+sudo sed -i "s|^chown -R tu:tu|chown -R ${REAL_USER}:${REAL_USER}|" \
+    sniff-web/scripts/install_web.sh
+sudo sed -i "s|^User=tu|User=${REAL_USER}|" \
+    sniff-web/deploy/systemd/sniff-web.service
+sudo sed -i "s|^tu ALL=(root) NOPASSWD:|${REAL_USER} ALL=(root) NOPASSWD:|" \
+    sniff-web/deploy/sudoers/sniff-web
+sudo bash sniff-web/scripts/install_web.sh
 ```
 
 ---

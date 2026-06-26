@@ -241,24 +241,56 @@ sleep 10
 
 ## Step 4 — ClickHouse
 
+> **Fix from earlier version:** the old guide used the RPM GPG-key path
+> (`/rpm/lts/repodata/repomd.xml.key`) for Debian/Ubuntu. ClickHouse signs both
+> RPM and deb repos with the same key, so the URL *worked* but was semantically
+> wrong and gave a confusing error on some Ubuntu mirrors. We now use the
+> deb-flavoured path and add a fallback.
+>
+> On Ubuntu 24.04 the `clickhouse-server` postinst script pops an **ncurses
+> dialog** asking for the default password — this blocks automation. We pre-set
+> `CLICKHOUSE_PASSWORD` and use `DEBIAN_FRONTEND=noninteractive`.
+
 ### 4.1 Install via apt
 
 ```bash
-sudo apt-get install -y apt-transport-https ca-certificates
-curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' | \
-    sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
+# 1. Prereqs + set default password via env so the postinst script is silent.
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    apt-transport-https ca-certificates dirmngr gnupg
 
-echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] \
+# 2. Add the ClickHouse GPG signing key.
+#    Prefer the /deb/ path (matches the docs at clickhouse.com/docs/install/debian_ubuntu)
+#    with a /rpm/ fallback that still returns 200 because the key is shared.
+sudo mkdir -p /usr/share/keyrings
+curl -fsSL 'https://packages.clickhouse.com/deb/lts/release.key' 2>/dev/null \
+    | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg 2>/dev/null \
+    || curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' \
+        | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
+
+# 3. Add the apt repo. `arch=...` makes apt reject packages for the wrong arch.
+ARCH=$(dpkg --print-architecture)
+echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg arch=${ARCH}] \
     https://packages.clickhouse.com/deb stable main" | \
     sudo tee /etc/apt/sources.list.d/clickhouse.list
 
+# 4. Install. CLICKHOUSE_PASSWORD stops the ncurses password prompt.
+export CLICKHOUSE_DB=default
+export CLICKHOUSE_USER=default
+export CLICKHOUSE_PASSWORD=ClickHousePass
+export CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+
 sudo apt-get update
-sudo apt-get install -y clickhouse-server clickhouse-client
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    clickhouse-server clickhouse-client
 ```
 
-> - `apt-transport-https ca-certificates` — enables apt to download packages over HTTPS
-> - `gpg --dearmor` — adds the ClickHouse GPG signing key so apt can verify packages
-> - `tee /etc/apt/sources.list.d/clickhouse.list` — registers the ClickHouse apt repository
+> - `apt-transport-https ca-certificates dirmngr gnupg` — enables apt to fetch over HTTPS
+> - `gpg --dearmor` — stores the signing key for apt's `signed-by=` directive
+> - `tee /etc/apt/sources.list.d/clickhouse.list` — registers the apt repository
+> - `CLICKHOUSE_PASSWORD` — required to silence the interactive postinst prompt
+> - `--force-confdef --force-confold` — never prompts on config file updates
 > - `clickhouse-server` — the main database service
 > - `clickhouse-client` — CLI for running queries and verifying the install
 
@@ -267,13 +299,17 @@ sudo apt-get install -y clickhouse-server clickhouse-client
 ```bash
 sudo systemctl enable clickhouse-server
 sudo systemctl start clickhouse-server
+sudo systemctl status clickhouse-server
 ```
 
 ### 4.3 Verify
 
 ```bash
-clickhouse-client --query "SELECT version()"
+clickhouse-client --password 'ClickHousePass' --query "SELECT version()"
 # Expected: a version string such as 24.3.1.2672
+
+# (Optional) Save the password so you don't type it again:
+echo "CLICKHOUSE_PASSWORD=ClickHousePass" | sudo tee /etc/clickhouse-client.env
 ```
 
 ---
@@ -328,45 +364,107 @@ sudo systemctl start grafana-server
 
 ## Step 6 — Argus & Zeek
 
-The feature extraction stage uses **Argus** (flow records) and **Zeek** (deep packet inspection).
+> **Fixes from earlier version:**
+> 1. The old Argus source URL `https://openargus.org/download/argus-3.0.8.tar.gz`
+>    returns **404** — openargus.org migrated to `qosient.com/argus/`. New URL:
+>    `https://qosient.com/argus/src/argus-3.0.8.tar.gz`.
+> 2. The script `https://raw.githubusercontent.com/zeek/zeek-docs/master/scripts/zeek-setup.sh`
+>    no longer exists. The official recommendation (from zeek.org/get-zeek/) is to
+>    add the **OpenSUSE Build Service** apt repo `security:zeek`.
+> 3. `argus-server/argus-client` and `zeek` packages are **not in the default
+>    Ubuntu 22.04/24.04 apt repos** — must build from source or use OBS.
+> 4. Several packages (especially `libpcap-dev`, `bison`, `flex`, `cmake` for
+>    Argus) prompt for input or show ncurses dialogs. Always pass
+>    `DEBIAN_FRONTEND=noninteractive`.
 
 ### 6.1 Install Argus
 
+**Option 1 — Build from source (works on every Ubuntu):**
+
 ```bash
-sudo apt-get install -y argus-server argus-client
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    build-essential flex bison libpcap-dev libreadline-dev \
+    libsasl2-dev libssl-dev libcurl4-openssl-dev pkg-config
 
+# New URL (qosient.com — openargus.org moved domains)
+ARGUS_VERSION="3.0.8"
+cd /tmp
+curl -fSL "https://qosient.com/argus/src/argus-${ARGUS_VERSION}.tar.gz" -o argus.tar.gz
+tar xzf argus.tar.gz && cd "argus-${ARGUS_VERSION}"
+./configure --prefix=/usr/local
+make -j"$(nproc)"
+sudo make install
+sudo ldconfig
 
-argus -V && ra -V
+# Symlink so `argus` and `ra` are on the default PATH
+sudo ln -sf /usr/local/bin/argus /usr/local/bin/argus-server
+sudo ln -sf /usr/local/bin/ra    /usr/local/bin/argus-client
 ```
 
-> - `argus-server` — generates flow records from pcap files
-> - `argus-client` (`ra`) — tool for reading and querying flow records
+**Option 2 — Try apt first (Ubuntu 24.04+ may have them):**
 
-> If the apt package is not available, build from source:
-> ```bash
-
+```bash
+if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y argus-server argus-client 2>/dev/null; then
+    echo "Argus installed from apt"
+else
+    echo "Argus not in apt — falling back to Option 1"
+fi
 ```
 
-> wget https://openargus.org/download/argus-3.0.8.tar.gz
-> tar xzf argus-3.0.8.tar.gz && cd argus-3.0.8
-> ./configure && make && sudo make install
-> 
+**Verify:**
+
+```bash
+argus -V 2>&1 | head -3
+ra -V    2>&1 | head -3
+which argus ra
+```
+
+> - `argus` (also called `argus-server`) — generates flow records from pcap files
+> - `ra` (also called `argus-client`) — tool for reading/querying flow records
+> - If `./configure` reports missing libraries, install the matching apt package and re-run.
 
 ### 6.2 Install Zeek
 
+**Recommended — via the OpenSUSE Build Service repo:**
+
 ```bash
-# Quick install via package script
-sudo bash -c "$(wget -qO - https://raw.githubusercontent.com/zeek/zeek-docs/master/scripts/zeek-setup.sh)"
+# 1. Add the OBS GPG key
+curl -fsSL https://download.opensuse.org/repositories/security:zeek/xUbuntu_24.04/Release.key \
+    | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/zeek-obs.gpg
 
-# Or via apt if available
-sudo apt-get install -y zeek
+# (For Ubuntu 22.04, replace the URL below with .../xUbuntu_22.04/)
 
-zeek --version
+# 2. Register the repo
+echo "deb [signed-by=/etc/apt/trusted.gpg.d/zeek-obs.gpg] \
+    http://download.opensuse.org/repositories/security:/zeek/xUbuntu_24.04/ /" | \
+    sudo tee /etc/apt/sources.list.d/zeek.list
+
+sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y zeek
+
+# 3. Zeek binaries land in /opt/zeek/bin/. Symlink so `which` finds them.
+echo 'export PATH=/opt/zeek/bin:$PATH' | sudo tee /etc/profile.d/zeek.sh >/dev/null
+sudo chmod +x /etc/profile.d/zeek.sh
+sudo ln -sf /opt/zeek/bin/zeek    /usr/local/bin/zeek
+sudo ln -sf /opt/zeek/bin/zeekctl /usr/local/bin/zeekctl
+sudo ln -sf /opt/zeek/bin/zkg     /usr/local/bin/zkg 2>/dev/null || true
 ```
 
-If Zeek lands in `/opt/zeek`, add it to `PATH`:
+> - OpenSUSE Build Service (`security:zeek`) is the **officially recommended**
+>   install method per zeek.org/get-zeek/. Do **not** use the old github
+>   setup script — it's been removed.
+> - Repos are available for Ubuntu 22.04, 24.04 and Debian 11, 12.
+> - Zeek binaries live in `/opt/zeek/bin/` by default, hence the symlinks.
+
+**Fallback — official binary tarball (if OBS is unreachable):**
 
 ```bash
+ZEEK_VERSION=$(curl -fsSL https://api.github.com/repos/zeek/zeek/releases/latest \
+    | grep tag_name | head -1 | cut -d'"' -f4)
+cd /tmp
+curl -fSL "https://download.zeek.org/zeek-${ZEEK_VERSION}.linux-x86_64.tar.gz" -o zeek.tar.gz
+sudo tar -xzf zeek.tar.gz -C /opt/
+sudo mv /opt/zeek-* /opt/zeek 2>/dev/null || true
 sudo ln -sf /opt/zeek/bin/zeek    /usr/local/bin/zeek
 sudo ln -sf /opt/zeek/bin/zeekctl /usr/local/bin/zeekctl
 ```
@@ -374,7 +472,11 @@ sudo ln -sf /opt/zeek/bin/zeekctl /usr/local/bin/zeekctl
 ### 6.3 Confirm both tools are reachable
 
 ```bash
+# All three binaries must resolve
 which argus ra zeek
+
+# Confirm versions
+argus -V 2>&1 | head -2
 zeek --version
 ```
 
@@ -637,6 +739,103 @@ sudo sniff --stop                   # stop the daemon
 
 ---
 
+## Step 11 — Web GUI (sniff-web) [Optional]
+
+> Optional companion to the IDS pipeline. Provides a browser-based control panel
+> for the capture engine and all 5 systemd services.
+>
+> **Fixes from earlier version:**
+> 1. `install_web.sh` hard-coded the user `tu` — fails on any other account.
+> 2. It ran `npm install` without checking that Node.js exists — fails on
+>    stock Ubuntu servers.
+> 3. The unit file used module `sniff-web.web_server:app` — Python refuses
+>    to import modules whose name contains `-`, so the service crashed with
+>    `ModuleNotFoundError` immediately.
+> 4. `PYTHONPATH` in the unit was hard-coded to `/home/tu/.local/...` —
+>    valid on exactly one machine.
+> 5. Frontend build was never verified — service could start with a 404-only UI.
+
+### 11.1 Prerequisites
+
+| Component | Minimum version | Reason |
+|-----------|-----------------|--------|
+| Python | 3.10+ | installed in Step 2 |
+| Node.js | **18+** (vite ≥5 needs ≥18, Ubuntu 22.04 ships 12) | build the React frontend |
+| npm | 9+ | bundled with Node 18+ |
+| Free disk | 800 MB | node_modules (~500 MB) + frontend build |
+
+The new `install_web.sh` auto-installs Node.js if missing (or upgrades to
+NodeSource 20.x if apt's version is too old) and verifies the build produced
+`dist/index.html`.
+
+### 11.2 Install
+
+```bash
+sudo bash sniff-web/scripts/install_web.sh
+```
+
+This script runs 7 idempotent steps:
+
+1. **Python deps** — installs `sniff-web/requirements-web.txt` (fastapi, uvicorn,
+   pyjwt, bcrypt, clickhouse-driver, kafka-python-ng, psutil). Uses
+   `--break-system-packages` automatically on Ubuntu 24.04.
+2. **Node + frontend** — installs Node.js if missing, then `npm install` +
+   `npm run build`. Fails loudly if `dist/index.html` is missing instead of
+   silently serving a 404-only UI.
+3. **setcap** — `cap_net_admin,cap_net_raw+ep` on `/usr/bin/python3` so the
+   capture engine can open raw sockets without root.
+4. **sudoers** — installs `/etc/sudoers.d/sniff-web` (allowlist of systemctl
+   + 6 services). Replaces `tu` with `${SUDO_USER}` automatically; runs
+   `visudo -c` on the patched file before install.
+5. **systemd unit** — renders `sniff-web.service` from the template. Patches:
+   - `WorkingDirectory` → `${REPO_DIR}/sniff-web`
+   - `User=tu` → `${SUDO_USER}`
+   - `Environment=PYTHONPATH=...` → site-packages of the current interpreter
+   - **Note:** `ExecStart=... uvicorn web_server:app ...` (not
+     `sniff-web.web_server:app` — Python can't import hyphenated names).
+6. **state dirs** — `/var/lib/sniff-web/` (`last_capture.json`) and
+   `/var/log/sniff-web/`, chown to the real user.
+7. **enable + start** — `systemctl enable + restart sniff-web`, waits 2 s,
+   reports RUNNING / FAILED with `journalctl` hint.
+
+### 11.3 Open the UI
+
+Navigate to `http://<server>:8000` — default credentials: `admin` / `sniff`.
+
+**Change the password:**
+
+```bash
+NEW_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'MY_NEW_PASS', bcrypt.gensalt()).decode())")
+python3 -c "
+import yaml
+with open('config.yaml') as f:
+    cfg = yaml.safe_load(f) or {}
+cfg.setdefault('web', {})['password_hash'] = '$NEW_HASH'
+with open('config.yaml', 'w') as f:
+    yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False)
+"
+sudo systemctl restart sniff-web
+```
+
+**Auto-restore after reboot:** click Start with the "auto-restore on reboot"
+checkbox. The last capture config persists to
+`/var/lib/sniff-web/last_capture.json`; the service lifespan reads it on boot.
+
+See `sniff-web/docs/WEB_GUI.md` for the full API and UI tour.
+
+### 11.4 Common pitfalls
+
+| Symptom | Root cause | Fix |
+|---------|-----------|-----|
+| `ModuleNotFoundError: No module named 'sniff-web.web_server'` | Old unit used hyphenated module name | Re-run `sudo bash sniff-web/scripts/install_web.sh` |
+| `npm: command not found` | Old script didn't install Node | Re-run installer (new version auto-installs Node 18+) |
+| `vite build` fails with "Node version too low" | Ubuntu 22.04 ships Node 12 | Re-run installer (auto-upgrades to NodeSource 20.x) |
+| Service starts but UI returns 404 | Frontend build skipped/failed | Re-run installer (new version verifies `dist/index.html`) |
+| `chown: invalid user: 'tu:tu'` | Hard-coded user (old bug) | Run via `sudo bash` so `$SUDO_USER` is set |
+| Login fails with `admin/sniff` | Config has placeholder bcrypt hash | See password-change snippet above |
+
+---
+
 ## Day-to-Day Operations
 
 ### Start / stop / restart
@@ -784,6 +983,81 @@ for family in dos exploits fuzzers generic analysis reconnaissance shellcode; do
     clickhouse-client --query \
         "ALTER TABLE network_ids.flows_${family} MODIFY TTL toDateTime(ts) + INTERVAL 7 DAY"
 done
+```
+
+### ❌ ClickHouse install hangs at "Set password for default user"
+
+The `clickhouse-server` postinst script pops an **ncurses dialog** unless
+`DEBIAN_FRONTEND=noninteractive` and `CLICKHOUSE_PASSWORD` are set.
+
+```bash
+# Option 1 — reinstall without the prompt
+export CLICKHOUSE_PASSWORD=ClickHousePass
+sudo DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    clickhouse-server
+
+# Option 2 — if ClickHouse is already installed, add the password by hand
+sudo sed -i 's|<password></password>|<password>ClickHousePass</password>|' \
+    /etc/clickhouse-server/users.xml
+sudo systemctl restart clickhouse-server
+```
+
+### ❌ `sniff-web.service` fails with `ModuleNotFoundError: No module named 'sniff_web'`
+
+The old unit file used `sniff-web.web_server:app` — Python can't import a module
+with a hyphen in its name. The new template uses `web_server:app` (because
+`WorkingDirectory` is already `sniff-web/`).
+
+```bash
+# Check current ExecStart
+cat /etc/systemd/system/sniff-web.service | grep ExecStart
+
+# If you still see 'sniff-web.web_server:app', re-run the installer
+sudo bash sniff-web/scripts/install_web.sh
+
+# Or patch by hand
+sudo sed -i 's|uvicorn sniff-web.web_server:app|uvicorn web_server:app|' \
+    /etc/systemd/system/sniff-web.service
+sudo systemctl daemon-reload
+sudo systemctl restart sniff-web
+```
+
+### ❌ `npm: command not found` during `install_web.sh`
+
+```bash
+# Install Node.js + npm via apt
+if ! command -v node >/dev/null 2>&1; then
+    sudo apt-get install -y nodejs npm
+fi
+
+# If apt's Node.js is too old (<18, e.g. on Ubuntu 22.04), use NodeSource 20.x
+if [[ "$(node -e 'console.log(process.versions.node.split(".")[0])')" -lt 18 ]]; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -
+    sudo apt-get install -y nodejs
+fi
+
+# Re-run the installer
+sudo bash sniff-web/scripts/install_web.sh
+```
+
+### ❌ `chown: invalid user: 'tu:tu'` during `install_web.sh`
+
+Old installer hard-coded the user. Run via `sudo bash` (so `$SUDO_USER` is set):
+
+```bash
+sudo bash sniff-web/scripts/install_web.sh
+
+# Or patch by hand if the user really isn't `tu`
+REAL_USER=$(whoami)
+sudo sed -i "s|^chown -R tu:tu|chown -R ${REAL_USER}:${REAL_USER}|" \
+    sniff-web/scripts/install_web.sh
+sudo sed -i "s|^User=tu|User=${REAL_USER}|" \
+    sniff-web/deploy/systemd/sniff-web.service
+sudo sed -i "s|^tu ALL=(root) NOPASSWD:|${REAL_USER} ALL=(root) NOPASSWD:|" \
+    sniff-web/deploy/sudoers/sniff-web
+sudo bash sniff-web/scripts/install_web.sh
 ```
 
 ---
