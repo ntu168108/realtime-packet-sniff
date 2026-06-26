@@ -27,10 +27,20 @@ DEFAULTS: Dict[str, Any] = {
 
 
 def load_web_config(path: str) -> Dict[str, Any]:
-    """Load the `web:` section from config.yaml. Returns DEFAULTS merged with file values."""
+    """Load the `web:` section from config.yaml. Returns DEFAULTS merged with file values.
+
+    Falls back to `<repo_root>/config.yaml` (parent of sniff-web/) when the
+    given path doesn't exist — the systemd unit runs from `sniff-web/` as CWD
+    but the repo's config.yaml lives one directory up.
+    """
     p = Path(path)
     if not p.exists():
-        return dict(DEFAULTS)
+        # CWD is sniff-web/ when run via systemd; repo config.yaml sits in ..
+        fallback = Path(__file__).resolve().parent.parent / path
+        if fallback.exists():
+            p = fallback
+        else:
+            return dict(DEFAULTS)
     with p.open("r", encoding="utf-8") as f:
         full = yaml.safe_load(f) or {}
     web = full.get("web", {}) or {}
@@ -647,6 +657,23 @@ def api_kafka_lag(group: str = "ec-consumer", user=Depends(require_user)):
 from fastapi.responses import FileResponse
 
 _CONFIG_PATH = "config.yaml"
+
+
+def _resolve_config_path() -> Path:
+    """Resolve config.yaml — prefer CWD, fall back to <repo_root>/config.yaml.
+
+    The systemd unit runs with WorkingDirectory=sniff-web/, but the user's
+    config.yaml lives in the repo root (one level up).
+    """
+    p = Path(_CONFIG_PATH)
+    if p.exists():
+        return p
+    fallback = Path(__file__).resolve().parent.parent / _CONFIG_PATH
+    if fallback.exists():
+        return fallback
+    return p  # original (non-existent) path; caller will handle the missing file
+
+
 CONFIG_WRITABLE = {
     "display.display_filter", "display.exclude_ports", "display.cache_size",
     "live.enabled",
@@ -658,7 +685,7 @@ _SANITIZE_HIDE = {"web.password_hash", "web.jwt_secret"}
 
 
 def _read_full_config() -> dict:
-    p = Path(_CONFIG_PATH)
+    p = _resolve_config_path()
     if not p.exists():
         return {}
     with p.open("r", encoding="utf-8") as f:
@@ -726,7 +753,7 @@ def api_config_put(body: dict, user=Depends(require_user)):
             if dotted not in CONFIG_WRITABLE:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Key '{dotted}' not writable via web")
     full.update(body)
-    p = Path(_CONFIG_PATH)
+    p = _resolve_config_path()
     with p.open("w", encoding="utf-8") as f:
         yaml.safe_dump(full, f, default_flow_style=False)
     return {"ok": True}

@@ -49,7 +49,9 @@ PIP_EXTRA_ARGS=""
 if python3 -m pip install --help 2>&1 | grep -q -- "--break-system-packages"; then
     PIP_EXTRA_ARGS="--break-system-packages"
 fi
-python3 -m pip install --quiet $PIP_EXTRA_ARGS -r sniff-web/requirements-web.txt
+python3 -m pip install --quiet $PIP_EXTRA_ARGS \
+    --ignore-installed \
+    -r sniff-web/requirements-web.txt
 
 # ----------------------------- [2/7] Node + frontend build -------------------
 echo "==> [2/7] Installing Node deps + building frontend"
@@ -91,8 +93,12 @@ if [[ -z "$PYTHON_BIN" ]]; then
     echo "ERROR: python3 not found" >&2
     exit 1
 fi
-setcap cap_net_admin,cap_net_raw+ep "$PYTHON_BIN"
-echo "    setcap on $PYTHON_BIN OK"
+# Resolve symlinks — on Debian/Ubuntu /usr/bin/python3 is usually a symlink to
+# python3.X and setcap refuses to follow symlinks ("Invalid file"). Apply
+# setcap to the real binary instead.
+PYTHON_REAL="$(realpath "$PYTHON_BIN")"
+setcap cap_net_admin,cap_net_raw+ep "$PYTHON_REAL"
+echo "    setcap on $PYTHON_REAL OK (resolved from $PYTHON_BIN)"
 
 # ----------------------------- [4/7] sudoers ---------------------------------
 echo "==> [4/7] Installing sudoers rule"
