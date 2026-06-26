@@ -1,0 +1,24 @@
+[Unit]
+Description=SNIFF Web GUI (FastAPI)
+After=network.target
+Documentation=https://github.com/ntu168108/realtime-packet-sniff
+
+[Service]
+Type=simple
+User=tu
+WorkingDirectory=/opt/realtime-packet-sniff/sniff-web
+Environment=PYTHONPATH=/home/tu/.local/lib/python3.12/site-packages
+ExecStart=/usr/bin/python3 -m uvicorn sniff-web.web_server:app --host 0.0.0.0 --port 8000 --workers 1
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sniff-web
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/sniff-web /var/log/sniff-web
+
+[Install]
+WantedBy=multi-user.target
