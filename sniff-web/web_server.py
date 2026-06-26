@@ -189,6 +189,122 @@ def _make_engine(**kwargs):
     return CaptureEngine(**kwargs)
 
 
+# ---------------------------------------------------------------------------
+# Packet broadcast pipeline (asyncio queues + callbacks + WS fan-out)
+# ---------------------------------------------------------------------------
+
+_loop: Optional[asyncio.AbstractEventLoop] = None
+_pkt_queue: Optional[asyncio.Queue] = None
+_drop_queue: Optional[asyncio.Queue] = None
+
+
+def _cb_packet(pkt_info):
+    """Called from Scapy's thread for each captured packet. Crosses thread boundary via call_soon_threadsafe."""
+    try:
+        loop = _loop
+        q = _pkt_queue
+        if loop is None or q is None:
+            return
+        loop.call_soon_threadsafe(q.put_nowait, pkt_info)
+    except Exception as exc:
+        logger.debug("cb_packet enqueue failed: %s", exc)
+
+
+def _cb_drop(reason: str, count: int):
+    """Called from Scapy's thread when packets are dropped."""
+    try:
+        loop = _loop
+        q = _drop_queue
+        if loop is None or q is None:
+            return
+        loop.call_soon_threadsafe(q.put_nowait, {"reason": reason, "count": count})
+    except Exception as exc:
+        logger.debug("cb_drop enqueue failed: %s", exc)
+
+
+async def _fan_out(clients: set, msg: str):
+    """Send JSON message to all connected WebSocket clients; drop dead ones."""
+    dead = set()
+    results = await asyncio.gather(
+        *[ws.send_text(msg) for ws in list(clients)],
+        return_exceptions=True,
+    )
+    for ws, r in zip(list(clients), results):
+        if isinstance(r, Exception):
+            dead.add(ws)
+    clients -= dead
+
+
+async def _broadcast_packets():
+    """Drain pkt_queue, decode packets, fan out to /ws/packets subscribers at ~20 Hz."""
+    while True:
+        await asyncio.sleep(0.05)
+        if not packet_clients:
+            # Drain to avoid stale accumulation when no clients
+            while True:
+                try:
+                    _pkt_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                except Exception:
+                    break
+            continue
+        batch = []
+        for _ in range(32):
+            try:
+                pkt = _pkt_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            except Exception:
+                continue
+            try:
+                d = decode_packet(pkt.data, deep=False)
+                batch.append({
+                    "stt": pkt.stt,
+                    "ts": pkt.ts_sec + pkt.ts_usec / 1_000_000,
+                    "src": d.src_addr, "dst": d.dst_addr,
+                    "src_port": d.src_port, "dst_port": d.dst_port,
+                    "proto": d.protocol_name, "len": pkt.caplen,
+                    "info": (d.info_str or "")[:160],
+                })
+            except Exception:
+                continue
+        if batch:
+            await _fan_out(packet_clients, json.dumps({"type": "packets", "data": batch}))
+
+
+async def _broadcast_stats():
+    """1Hz stats broadcaster: pulls engine.get_status() and counts drop events."""
+    drop_total = 0
+    while True:
+        await asyncio.sleep(1.0)
+        # Drain drop queue, accumulate total
+        while True:
+            try:
+                ev = _drop_queue.get_nowait()
+                drop_total += ev.get("count", 0)
+            except asyncio.QueueEmpty:
+                break
+            except Exception:
+                break
+        if not stats_clients:
+            continue
+        eng = getattr(app.state, "engine", None)
+        if eng and getattr(eng, "is_running", False):
+            try:
+                status = eng.get_status()
+            except Exception:
+                status = {"running": True, "paused": False, "interface": None,
+                          "packets": 0, "bytes": 0, "dropped": 0,
+                          "pps": 0, "bps": 0, "protocols": {}, "uptime": 0}
+        else:
+            status = {"running": False, "paused": False, "interface": None,
+                      "packets": 0, "bytes": 0, "dropped": 0,
+                      "pps": 0, "bps": 0, "protocols": {}, "uptime": 0}
+        status["ws_drop_total"] = drop_total
+        await _fan_out(stats_clients, json.dumps({"type": "stats", "data": status}))
+
+
 class StartBody(BaseModel):
     interface: str
     bpf_filter: str = ""
@@ -221,6 +337,14 @@ async def _on_startup():
         configure_auth(username=cfg["username"], password_hash=cfg["password_hash"],
                        jwt_secret=cfg["jwt_secret"], jwt_expiry=cfg["jwt_expiry_seconds"])
     app.state.persistence_dir = persistence
+
+    # Initialize asyncio queues and start broadcast tasks
+    global _loop, _pkt_queue, _drop_queue
+    _loop = asyncio.get_running_loop()
+    _pkt_queue = asyncio.Queue(maxsize=4000)
+    _drop_queue = asyncio.Queue(maxsize=200)
+    asyncio.create_task(_broadcast_packets())
+    asyncio.create_task(_broadcast_stats())
     if cfg["auto_restore"]:
         last = read_last_capture(persistence)
         if last and last.get("auto_restore") and last.get("interface"):
@@ -228,7 +352,8 @@ async def _on_startup():
                 logger.info("Auto-restoring capture on %s", last["interface"])
                 app.state.engine = _make_engine(
                     interface=last["interface"], bpf_filter=last.get("bpf_filter", ""),
-                    snaplen=last.get("snaplen", 65535), promisc=last.get("promisc", True))
+                    snaplen=last.get("snaplen", 65535), promisc=last.get("promisc", True),
+                    on_packet_filtered=_cb_packet, on_drop=_cb_drop)
                 app.state.engine.setup()
                 app.state.engine.start()
             else:
@@ -257,7 +382,8 @@ def api_start(body: StartBody, user=Depends(require_user)):
     if eng and getattr(eng, "is_running", False):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Capture already running")
     new_engine = _make_engine(interface=body.interface, bpf_filter=body.bpf_filter,
-                              snaplen=body.snaplen, promisc=body.promisc)
+                              snaplen=body.snaplen, promisc=body.promisc,
+                              on_packet_filtered=_cb_packet, on_drop=_cb_drop)
     new_engine.setup()
     new_engine.start()
     app.state.engine = new_engine
