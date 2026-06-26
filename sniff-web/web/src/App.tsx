@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useState, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
@@ -39,6 +39,7 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,6 +58,7 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
       const body = await r.json();
       setToken(body.token);
       onLogin(body.token);
+      navigate('/dashboard');
     } catch (e: any) {
       setError(`Network error: ${e.message}`);
     }
