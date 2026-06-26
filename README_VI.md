@@ -209,7 +209,7 @@ y hệt TUI, kèm 5 systemd services, Kafka topics, ClickHouse queries, và file
 Xem `sniff-web/docs/WEB_GUI.md` để biết chi tiết. Cài nhanh:
 
 ```bash
-sudo bash scripts/install_web.sh
+sudo bash sniff-web/scripts/install_web.sh
 # Mở http://<server>:8000 — đăng nhập admin / sniff
 ```
 

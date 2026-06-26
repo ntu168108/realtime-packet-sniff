@@ -24,7 +24,7 @@
 ```bash
 git clone https://github.com/ntu168108/realtime-packet-sniff.git
 cd realtime-packet-sniff
-sudo bash scripts/install_web.sh
+sudo bash sniff-web/scripts/install_web.sh
 ```
 
 Open `http://<server>:8000`. Default credentials: `admin` / `sniff`.

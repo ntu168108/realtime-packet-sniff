@@ -228,7 +228,7 @@ ClickHouse queries, and rotated PCAP files — all from a browser.
 See `sniff-web/docs/WEB_GUI.md` for full documentation. Quick start:
 
 ```bash
-sudo bash scripts/install_web.sh
+sudo bash sniff-web/scripts/install_web.sh
 # Open http://<server>:8000 — login admin / sniff
 ```
 

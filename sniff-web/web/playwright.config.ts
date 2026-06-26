@@ -9,7 +9,8 @@ export default defineConfig({
   },
   webServer: {
     command: 'cd sniff-web && python3 -m uvicorn web_server:app --host 127.0.0.1 --port 8000',
-    url: 'http://localhost:8000/api/interfaces',
+    // Use /login (200) for readiness — /api/* requires auth so 401s before Playwright can sign in.
+    url: 'http://localhost:8000/login',
     timeout: 30000,
     reuseExistingServer: !process.env.CI,
     env: {
