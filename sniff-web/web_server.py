@@ -161,6 +161,8 @@ def change_password(username: str, new_password: str) -> dict:
 
 import sys
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 try:
@@ -198,6 +200,31 @@ class StartBody(BaseModel):
 app = FastAPI(title="SNIFF Web GUI", version="0.3.0")
 
 
+# ---------------------------------------------------------------------------
+# Static frontend (built by `vite build` → web/dist). Mounted last so /api
+# and /ws routes take precedence. SPA fallback: any non-API GET that misses
+# serves index.html so client-side routes like /dashboard resolve.
+# ---------------------------------------------------------------------------
+
+_STATIC_DIR = Path(__file__).parent / "web" / "dist"
+
+
+if _STATIC_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    def _root_index():
+        return FileResponse(str(_STATIC_DIR / "index.html"))
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def _spa_fallback(full_path: str):
+        # Never shadow API/WS — those are registered before this catch-all.
+        candidate = _STATIC_DIR / full_path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(_STATIC_DIR / "index.html"))
+
+
 @app.post("/api/auth/login")
 def api_login(body: dict):
     return login(body.get("username"), body.get("password"))
@@ -207,8 +234,17 @@ def api_login(body: dict):
 async def _on_startup():
     cfg = load_web_config("config.yaml")
     persistence = PERSISTENCE_DIR_OVERRIDE or cfg["persistence_dir"]
-    configure_auth(username=cfg["username"], password_hash=cfg["password_hash"],
-                   jwt_secret=cfg["jwt_secret"], jwt_expiry=cfg["jwt_expiry_seconds"])
+    # Test override: when SNIFF_WEB_TEST=1, configure auth from env vars so the
+    # Playwright webServer can boot without writing a real config.yaml.
+    if os.environ.get("SNIFF_WEB_TEST") == "1":
+        _u = os.environ.get("SNIFF_WEB_TEST_USERNAME", "admin")
+        _p = os.environ.get("SNIFF_WEB_TEST_PASSWORD", "sniff")
+        configure_auth(username=_u,
+                       password_hash=bcrypt.hashpw(_p.encode(), bcrypt.gensalt()).decode(),
+                       jwt_secret="test_secret", jwt_expiry=3600)
+    else:
+        configure_auth(username=cfg["username"], password_hash=cfg["password_hash"],
+                       jwt_secret=cfg["jwt_secret"], jwt_expiry=cfg["jwt_expiry_seconds"])
     app.state.persistence_dir = persistence
     if cfg["auto_restore"]:
         last = read_last_capture(persistence)
