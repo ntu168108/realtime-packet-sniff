@@ -355,3 +355,56 @@ def api_services_action(name: str, action: str, user=Depends(require_user)):
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
                             result["stderr"] or f"systemctl {action} {name} failed")
     return {"ok": True, "exit_code": result["exit_code"]}
+
+
+CH_ALLOWLIST_PREFIXES = ("SELECT ", "SHOW ", "DESCRIBE ", "DESC ", "EXISTS ", "SELECT 1")
+CH_MAX_ROWS_HARD_LIMIT = 1000
+
+
+def query_clickhouse(sql: str, max_rows: int = 1000) -> dict:
+    from clickhouse_driver import Client
+    import time as _t
+    client = Client(host="localhost", port=9000, database="network_ids")
+    start = _t.time()
+    rows = client.execute(sql, with_column_types=True)
+    elapsed = (_t.time() - start) * 1000
+    if not rows:
+        return {"columns": [], "rows": [], "elapsed_ms": elapsed}
+    data, types = rows
+    columns = [t[0] for t in types]
+    truncated = data[:max_rows]
+    return {"columns": columns, "rows": [list(r) for r in truncated], "elapsed_ms": elapsed}
+
+
+@app.post("/api/clickhouse/query")
+def api_clickhouse_query(body: dict, user=Depends(require_user)):
+    sql = (body.get("sql") or "").strip()
+    if not sql:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty SQL")
+    upper = sql.upper().lstrip()
+    if not any(upper.startswith(p) for p in CH_ALLOWLIST_PREFIXES):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only SELECT/SHOW/DESCRIBE/EXISTS allowed")
+    max_rows = min(int(body.get("max_rows", 1000)), CH_MAX_ROWS_HARD_LIMIT)
+    try:
+        return query_clickhouse(sql, max_rows)
+    except Exception as exc:
+        logger.warning("ClickHouse query failed: %s", exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"ClickHouse error: {exc}")
+
+
+@app.get("/api/clickhouse/counts")
+def api_clickhouse_counts(user=Depends(require_user)):
+    families = ["dos", "exploits", "fuzzers", "generic", "analysis", "reconnaissance", "shellcode"]
+    out = {}
+    try:
+        result = query_clickhouse("SELECT count() FROM network_ids.flows_all", 1)
+        out["flows_all"] = result["rows"][0][0] if result["rows"] else 0
+        for fam in families:
+            r = query_clickhouse(f"SELECT count() FROM network_ids.flows_{fam}", 1)
+            out[f"flows_{fam}"] = r["rows"][0][0] if r["rows"] else 0
+        r = query_clickhouse("SELECT count() FROM network_ids.pipeline_runs", 1)
+        out["pipeline_runs"] = r["rows"][0][0] if r["rows"] else 0
+        return out
+    except Exception as exc:
+        logger.warning("ClickHouse counts failed: %s", exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "ClickHouse unavailable")
