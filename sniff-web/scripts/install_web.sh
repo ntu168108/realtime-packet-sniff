@@ -14,7 +14,14 @@
 #   7. daemon-reload + enable + restart sniff-web
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Resolve repo root robustly regardless of CWD. We do this in two steps:
+#   1. realpath on BASH_SOURCE[0] → absolute path of this script
+#      (works whether the user invoked us as `bash sniff-web/scripts/install_web.sh`,
+#       `sudo bash sniff-web/scripts/install_web.sh`, or with absolute path)
+#   2. lùi 2 cấp từ script dir để ra repo root:
+#      <repo>/sniff-web/scripts/install_web.sh  →  <repo>
+SCRIPT_DIR="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_DIR"
 
 if [[ $EUID -ne 0 ]]; then
