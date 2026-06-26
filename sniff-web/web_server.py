@@ -200,31 +200,6 @@ class StartBody(BaseModel):
 app = FastAPI(title="SNIFF Web GUI", version="0.3.0")
 
 
-# ---------------------------------------------------------------------------
-# Static frontend (built by `vite build` → web/dist). Mounted last so /api
-# and /ws routes take precedence. SPA fallback: any non-API GET that misses
-# serves index.html so client-side routes like /dashboard resolve.
-# ---------------------------------------------------------------------------
-
-_STATIC_DIR = Path(__file__).parent / "web" / "dist"
-
-
-if _STATIC_DIR.is_dir():
-    app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
-
-    @app.get("/", include_in_schema=False)
-    def _root_index():
-        return FileResponse(str(_STATIC_DIR / "index.html"))
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    def _spa_fallback(full_path: str):
-        # Never shadow API/WS — those are registered before this catch-all.
-        candidate = _STATIC_DIR / full_path
-        if candidate.is_file():
-            return FileResponse(str(candidate))
-        return FileResponse(str(_STATIC_DIR / "index.html"))
-
-
 @app.post("/api/auth/login")
 def api_login(body: dict):
     return login(body.get("username"), body.get("password"))
@@ -709,3 +684,28 @@ async def ws_services(websocket: WebSocket, token: str = Query("")):
                 pass
     except WebSocketDisconnect:
         services_clients.discard(websocket)
+
+
+# ---------------------------------------------------------------------------
+# Static frontend (built by `vite build` → web/dist). Registered LAST so
+# /api and /ws routes (registered above) take precedence in Starlette's
+# first-match route resolution. SPA fallback: any non-API GET that misses
+# serves index.html so client-side routes like /dashboard resolve.
+# ---------------------------------------------------------------------------
+
+_STATIC_DIR = Path(__file__).parent / "web" / "dist"
+
+
+if _STATIC_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    def _root_index():
+        return FileResponse(str(_STATIC_DIR / "index.html"))
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def _spa_fallback(full_path: str):
+        candidate = _STATIC_DIR / full_path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(_STATIC_DIR / "index.html"))
