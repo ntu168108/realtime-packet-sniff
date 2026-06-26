@@ -583,3 +583,93 @@ def api_system_info(user=Depends(require_user)):
         "disk_total_gb": disk.total // (1024 ** 3), "disk_used_gb": disk.used // (1024 ** 3),
         "nic_count": nics,
     }
+
+
+# ---------------------------------------------------------------------------
+# WebSocket endpoints (Task 9): packets, stats, services
+# ---------------------------------------------------------------------------
+
+import asyncio
+from fastapi import WebSocket, WebSocketDisconnect, Query
+
+packet_clients: set = set()
+stats_clients: set = set()
+services_clients: set = set()
+
+
+async def _verify_ws_token(websocket: WebSocket, token: str = Query("")) -> bool:
+    if not token:
+        await websocket.close(code=1008, reason="Missing token")
+        return False
+    try:
+        decode_token(token)
+    except Exception:
+        await websocket.close(code=1008, reason="Invalid token")
+        return False
+    return True
+
+
+@app.websocket("/ws/packets")
+async def ws_packets(websocket: WebSocket, token: str = Query("")):
+    if not await _verify_ws_token(websocket, token):
+        return
+    await websocket.accept()
+    packet_clients.add(websocket)
+    try:
+        while True:
+            await asyncio.sleep(50)
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=0.01)
+            except asyncio.TimeoutError:
+                pass
+    except WebSocketDisconnect:
+        packet_clients.discard(websocket)
+
+
+@app.websocket("/ws/stats")
+async def ws_stats(websocket: WebSocket, token: str = Query("")):
+    if not await _verify_ws_token(websocket, token):
+        return
+    await websocket.accept()
+    stats_clients.add(websocket)
+    try:
+        while True:
+            eng = getattr(app.state, "engine", None)
+            try:
+                status = eng.get_status() if (eng and getattr(eng, "is_running", False)) else {
+                    "running": False, "paused": False, "interface": None,
+                    "packets": 0, "bytes": 0, "dropped": 0, "pps": 0, "bps": 0,
+                    "protocols": {}, "uptime": 0,
+                }
+            except Exception:
+                status = {"running": False, "paused": False, "interface": None,
+                          "packets": 0, "bytes": 0, "dropped": 0, "pps": 0, "bps": 0,
+                          "protocols": {}, "uptime": 0}
+            await websocket.send_json({"type": "stats", "data": status})
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+    except WebSocketDisconnect:
+        stats_clients.discard(websocket)
+
+
+@app.websocket("/ws/services")
+async def ws_services(websocket: WebSocket, token: str = Query("")):
+    if not await _verify_ws_token(websocket, token):
+        return
+    await websocket.accept()
+    services_clients.add(websocket)
+    try:
+        while True:
+            try:
+                data = list_services_status()
+            except Exception:
+                data = []
+            await websocket.send_json({"type": "services", "data": data})
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+    except WebSocketDisconnect:
+        services_clients.discard(websocket)
