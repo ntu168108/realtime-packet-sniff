@@ -80,3 +80,6 @@ sniff-web/web/node_modules/
 /var/lib/sniff-web/
 sniff-web/web/instance/
 *.tsbuildinfo
+
+# Generated config with real bcrypt hash + JWT secret — never commit
+config.yaml
