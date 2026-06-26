@@ -835,14 +835,18 @@ python3 MODULE_PHANLOAI/dos_classifier.py \
 > Bước bổ sung tùy chọn, không cần thiết cho hệ thống IDS đã chạy ở Bước 10.
 > Web GUI cho phép điều khiển capture + 5 services từ trình duyệt.
 >
-> **Lỗi đã sửa (phiên bản cũ):**
-> 1. `install_web.sh` hardcode user `tu` → fail trên mọi user khác.
-> 2. Script chạy `npm install` mà không kiểm tra Node.js đã cài → fail trên Ubuntu server.
-> 3. Unit file dùng module `sniff-web.web_server:app` — Python không thể import
->    module có dấu gạch ngang (`-`) trong tên, gây `ModuleNotFoundError` ngay khi start.
-> 4. PYTHONPATH trong unit file hardcode `/home/tu/.local/lib/python3.12/...` — chỉ
->    đúng trên 1 máy cụ thể.
-> 5. Frontend build không được verify → service start thành công nhưng UI trả 404.
+> 🎯 **Bản mới (zero-touch):** Sau khi chạy xong `install_web.sh`, có thể mở trình
+> duyệt ngay tại `http://<server>:8000` và đăng nhập với `admin / sniff` — không
+> cần chạy thêm bất kỳ lệnh nào.
+>
+> **Các lỗi đã sửa (qua các commit trước):**
+> 1. `install_web.sh` hardcode user `tu` → fail trên mọi user khác
+> 2. Script chạy `npm install` mà không kiểm tra Node.js → fail trên Ubuntu server thuần
+> 3. Unit file dùng module `sniff-web.web_server:app` → Python không import được
+> 4. PYTHONPATH hardcode → chỉ đúng 1 máy
+> 5. Frontend build không verify → UI 404
+> 6. **`config.yaml.example` có `web:` ở sai indent** → parser thấy `capture.web` thay vì top-level `web`, login luôn 401 ngay cả khi hash đúng (FIX trong bản này)
+> 7. **Script không tự tạo `config.yaml`** với bcrypt hash thật → fresh install phải tự chạy thêm lệnh gen hash (FIX trong bản này)
 
 ### 11.1 Yêu cầu trước khi cài
 
@@ -853,69 +857,69 @@ python3 MODULE_PHANLOAI/dos_classifier.py \
 | npm | 9+ | kèm theo Node 18+ |
 | disk trống | 800 MB | node_modules (~500MB) + frontend build |
 
-Phiên bản cũ của `install_web.sh` không tự cài Node.js — phải chạy trên Ubuntu server
-thuần (không có node) sẽ fail ngay bước `npm install`. Phiên bản mới đã tự động cài
-Node.js qua apt (hoặc NodeSource 20.x nếu bản apt quá cũ).
-
 ### 11.2 Cài Web GUI
 
 ```bash
 sudo bash sniff-web/scripts/install_web.sh
 ```
 
-Lệnh này sẽ (7 bước, idempotent — chạy lại không hỏng):
-1. **Python deps**: cài `sniff-web/requirements-web.txt` (fastapi, uvicorn, pyjwt, bcrypt,
-   clickhouse-driver, kafka-python-ng, psutil). Tự dùng `--break-system-packages` trên
-   Ubuntu 24.04.
-2. **Node + frontend**: cài Node.js nếu thiếu; build `sniff-web/web/dist/` qua
-   `npm run build`. **Verify** `dist/index.html` tồn tại — nếu không, script fail
-   thay vì âm thầm để service chạy không có UI.
-3. **setcap**: cấp `cap_net_admin,cap_net_raw+ep` cho `/usr/bin/python3` để capture
-   raw socket không cần root.
-4. **sudoers**: cài `/etc/sudoers.d/sniff-web` (allowlist systemctl + 6 services). Tự
-   động patch user `tu` → `${SUDO_USER}` (user thật chạy sudo). Visudo validate
-   trước khi copy.
-5. **systemd unit**: render `sniff-web.service` từ template. Patch 3 thứ:
-   - `WorkingDirectory=/opt/realtime-packet-sniff/sniff-web` → `${REPO_DIR}/sniff-web`
-   - `User=tu` → `${SUDO_USER}`
-   - `Environment=PYTHONPATH=/home/tu/.local/...` → đường dẫn site-packages thật
-     lấy từ `python3 -c "import site; print(site.getusersitepackages())"`
-   - **Quan trọng:** `ExecStart=... uvicorn web_server:app ...` (KHÔNG phải
-     `sniff-web.web_server:app` vì Python không import được module có dấu `-`).
-6. **state dirs**: tạo `/var/lib/sniff-web/` (lưu `last_capture.json`) và
-   `/var/log/sniff-web/`, chown cho user thật.
-7. **enable + start**: `systemctl enable + restart sniff-web`, đợi 2s rồi check
-   `is-active` — báo RUNNING/FAILED ngay.
+Lệnh này chạy **8 bước idempotent** (chạy lại không hỏng):
+
+1. **Python deps**: cài `sniff-web/requirements-web.txt` với `--break-system-packages`
+   trên Ubuntu 24.04 và `--ignore-installed` để tránh xung đột với PyJWT do apt cài.
+2. **Node + frontend**: tự cài Node.js nếu thiếu (apt hoặc NodeSource 20.x);
+   build `sniff-web/web/dist/` qua `npm run build`. **Verify** `dist/index.html` tồn tại.
+3. **setcap**: `cap_net_admin,cap_net_raw+ep` cho `/usr/bin/python3` (resolve symlink).
+4. **sudoers**: cài `/etc/sudoers.d/sniff-web`. Patch user `tu` → `${SUDO_USER}`. Validate
+   qua `visudo -c` trước khi copy.
+5. **systemd unit**: render `sniff-web.service`. Patch repo path, user, PYTHONPATH.
+   `ExecStart=... uvicorn web_server:app ...` (đã fix từ `sniff-web.web_server:app`).
+6. **config.yaml**: nếu chưa có → copy từ example + generate bcrypt hash cho password
+   mặc định `sniff` + random JWT secret. Nếu đã có hash thật → giữ nguyên (preserve
+   user customizations). Chown user, mode 0640.
+7. **state + log dirs + logrotate**: tạo `/var/lib/sniff-web/` và `/var/log/sniff-web/`,
+   cài `/etc/logrotate.d/sniff-web` (rotate daily, giữ 7 ngày, compress).
+8. **enable + start**: `systemctl enable + restart sniff-web`, đợi 2s, báo RUNNING/FAILED.
+
+Output cuối:
+
+```
+===============================================
+  sniff-web install: RUNNING
+===============================================
+URL:      http://192.168.1.93:8000
+Username: admin
+Password: sniff  (CHANGE IMMEDIATELY in config.yaml)
+```
 
 ### 11.3 Mở Web GUI
 
-**Mở:** `http://<server>:8000` — đăng nhập `admin` / `sniff` (đổi pass ngay trong
-`config.yaml`).
+**Mở trình duyệt:** `http://<server>:8000` — đăng nhập `admin` / `sniff` (đổi pass ngay
+trong UI hoặc bằng lệnh ở mục 11.5).
 
-**Tự khởi động capture sau reboot:** Bấm Start trong UI với checkbox
-"auto-restore on reboot". Config được lưu vào
-`/var/lib/sniff-web/last_capture.json`; lifespan startup đọc và tự restart capture.
+**Tự khởi động capture sau reboot:** Bấm Start trong UI với checkbox "auto-restore
+on reboot". Config được lưu vào `/var/lib/sniff-web/last_capture.json`; lifespan
+startup đọc và tự restart capture.
 
 ### 11.4 Lỗi thường gặp & fix
 
 | Triệu chứng | Nguyên nhân | Cách sửa |
 |-------------|-------------|----------|
-| `ModuleNotFoundError: No module named 'sniff_web'` (hoặc `sniff-web.web_server`) | Unit file cũ dùng module sai (đã sửa ở trên) | Re-run `sudo bash sniff-web/scripts/install_web.sh` |
-| `setcap` OK nhưng vẫn `Operation not permitted` khi capture | Python binary khác (`/usr/bin/python3.12`) — setcap chỉ áp dụng đúng binary | Cài lại Python qua apt rồi re-run script |
-| `npm: command not found` | Script cũ không cài Node | Re-run script — bản mới tự cài Node 18+ qua NodeSource |
-| `vite build` fail vì Node < 18 | Ubuntu 22.04 mặc định Node 12 | Re-run script — bản mới tự nâng lên Node 20.x |
-| Service start xong nhưng UI trả 404 | Frontend build thiếu | Re-run script — bản mới verify `dist/index.html` |
-| `chown: invalid user: 'tu:tu'` | User không tồn tại | Re-run script — bản mới dùng `${SUDO_USER}` thực |
-| Login fail với `admin/sniff` | Config chưa có password hash thật | Xem mục 11.5 dưới đây |
+| `ModuleNotFoundError: No module named 'sniff-web.web_server'` | Phiên bản cũ | Re-run `sudo bash sniff-web/scripts/install_web.sh` |
+| `npm: command not found` | Ubuntu server không có node | Re-run script — tự cài Node 18+ |
+| `vite build` fail vì Node < 18 | Ubuntu 22.04 mặc định Node 12 | Re-run script — tự nâng lên NodeSource 20.x |
+| Service start xong nhưng UI trả 404 | Frontend build thiếu | Re-run script — verify `dist/index.html` |
+| `chown: invalid user: 'tu:tu'` | User không phải `tu` | Re-run script — dùng `${SUDO_USER}` thực |
+| Login 401 với `admin/sniff` ngay sau install | `config.yaml` không có hash thật | Re-run script — bản mới auto-generate |
+| `setcap: Invalid file '/usr/bin/python3'` | Symlink | Re-run script — fix realpath |
 
 ### 11.5 Đổi mật khẩu admin
 
 ```bash
-# 1. Tạo bcrypt hash cho password mới
-NEW_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'MAT_KHAU_CUA_BAN', bcrypt.gensalt()).decode())")
-echo "Hash: $NEW_HASH"
+# Cách 1: qua UI — vào Settings → Change password (dễ nhất)
 
-# 2. Ghi vào config.yaml
+# Cách 2: qua CLI
+NEW_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'MAT_KHAU_MOI', bcrypt.gensalt()).decode())")
 python3 -c "
 import yaml
 with open('config.yaml') as f:
@@ -923,14 +927,11 @@ with open('config.yaml') as f:
 cfg.setdefault('web', {})['password_hash'] = '$NEW_HASH'
 with open('config.yaml', 'w') as f:
     yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False)
-print('Updated')
 "
-
-# 3. Restart service để nạp config mới
 sudo systemctl restart sniff-web
 ```
 
-Xem `sniff-web/docs/WEB_GUI.md` để biết chi tiết API và UI khác.
+Xem `sniff-web/docs/WEB_GUI.md` để biết chi tiết API và UI.
 
 ## Xử lý sự cố thường gặp
 
