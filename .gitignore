@@ -73,3 +73,10 @@ Extraction-and-classification/CSV/CSV_Full_feature/*
 
 # SDD scratch (skill working files, regenerated per session)
 .superpowers/
+
+# Web GUI artifacts
+sniff-web/web/dist/
+sniff-web/web/node_modules/
+/var/lib/sniff-web/
+sniff-web/web/instance/
+*.tsbuildinfo
