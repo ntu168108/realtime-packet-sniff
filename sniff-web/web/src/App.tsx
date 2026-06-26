@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { getToken, setToken } from './hooks/useApi';
 import Dashboard from './pages/Dashboard';
+import Capture from './pages/Capture';
 
 export default function App() {
   const [token, setTok] = useState<string | null>(getToken());
@@ -80,6 +81,7 @@ function AuthenticatedLayout({ onLogout }: { onLogout: () => void }) {
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/capture" element={<Capture />} />
           {/* additional pages added in subsequent tasks */}
         </Routes>
       </main>
