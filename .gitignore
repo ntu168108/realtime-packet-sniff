@@ -70,3 +70,6 @@ Extraction-and-classification/CSV/CSV_Full_feature/*
 
 # Trained model artifact is large/regenerable; keep baseline only
 *.pcap.summary.json
+
+# SDD scratch (skill working files, regenerated per session)
+.superpowers/
