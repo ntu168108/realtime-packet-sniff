@@ -1,0 +1,68 @@
+name: Web GUI
+
+on:
+  push:
+    paths:
+      - 'web_server.py'
+      - 'tests/integration_tests/test_web_*.py'
+      - 'sniff-web/requirements-web.txt'
+      - 'sniff-web/web/**'
+      - '.github/workflows/web-gui.yml'
+  pull_request:
+    paths:
+      - 'web_server.py'
+      - 'tests/integration_tests/test_web_*.py'
+      - 'sniff-web/requirements-web.txt'
+      - 'sniff-web/web/**'
+      - '.github/workflows/web-gui.yml'
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev tcpdump
+      - name: Install Python deps
+        run: |
+          pip install --break-system-packages -r requirements.txt -r sniff-web/requirements-web.txt
+      - name: Run backend tests
+        run: |
+          cd sniff-web && pytest tests/integration_tests/test_web_auth.py \
+                 tests/integration_tests/test_web_capture.py \
+                 tests/integration_tests/test_web_services.py \
+                 tests/integration_tests/test_web_clickhouse.py \
+                 tests/integration_tests/test_web_kafka.py \
+                 tests/integration_tests/test_web_misc.py \
+                 tests/integration_tests/test_web_persistence.py \
+                 tests/integration_tests/test_web_security.py \
+                 tests/integration_tests/test_web_websocket.py \
+                 tests/integration_tests/test_config_web.py -v
+      - name: Verify existing tests still pass
+        run: |
+          pytest tests/integration_tests/ -v --ignore=tests/integration_tests/test_web_auth.py --ignore=tests/integration_tests/test_web_capture.py --ignore=tests/integration_tests/test_web_services.py --ignore=tests/integration_tests/test_web_clickhouse.py --ignore=tests/integration_tests/test_web_kafka.py --ignore=tests/integration_tests/test_web_misc.py --ignore=tests/integration_tests/test_web_persistence.py --ignore=tests/integration_tests/test_web_security.py --ignore=tests/integration_tests/test_web_websocket.py --ignore=tests/integration_tests/test_config_web.py
+
+  frontend-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install npm deps
+        working-directory: web
+        run: npm ci
+      - name: Typecheck
+        working-directory: web
+        run: npx tsc --noEmit
+      - name: Build
+        working-directory: web
+        run: npm run build
+      - name: Vitest
+        working-directory: web
+        run: npm test
