@@ -476,3 +476,110 @@ def api_kafka_lag(group: str = "ec-consumer", user=Depends(require_user)):
     except Exception as exc:
         logger.warning("Kafka lag failed: %s", exc)
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Kafka unavailable")
+
+
+# ---------------------------------------------------------------------------
+# Task 8: PCAP manager + Config + System info
+# ---------------------------------------------------------------------------
+
+from fastapi.responses import FileResponse
+
+_CONFIG_PATH = "config.yaml"
+CONFIG_WRITABLE = {
+    "display.display_filter", "display.exclude_ports", "display.cache_size",
+    "live.enabled",
+    "modules.enabled", "modules.auto_discover",
+    "performance.ring_buffer_size", "performance.batch_size",
+    "performance.enable_deep_decode", "performance.gc_interval",
+}
+_SANITIZE_HIDE = {"web.password_hash", "web.jwt_secret"}
+
+
+def _read_full_config() -> dict:
+    p = Path(_CONFIG_PATH)
+    if not p.exists():
+        return {}
+    with p.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _sanitize_config(cfg: dict) -> dict:
+    out = yaml.safe_load(yaml.safe_dump(cfg))
+    for dotted in _SANITIZE_HIDE:
+        section, key = dotted.split(".", 1)
+        if section in out and isinstance(out[section], dict):
+            out[section][key] = ""
+    return out
+
+
+@app.get("/api/pcap/files")
+def api_pcap_files(user=Depends(require_user)):
+    cfg = load_web_config(_CONFIG_PATH)
+    base = cfg.get("capture", {}).get("output", {}).get("base_dir", "./sniff_data")
+    base_path = Path(base)
+    if not base_path.exists():
+        return []
+    out = []
+    for p in sorted(base_path.glob("*.pcap*"), key=lambda x: x.stat().st_mtime, reverse=True)[:500]:
+        st = p.stat()
+        out.append({"name": p.name, "size": st.st_size, "mtime": int(st.st_mtime)})
+    return out
+
+
+@app.get("/api/pcap/download/{name}")
+def api_pcap_download(name: str, user=Depends(require_user)):
+    if ".." in name or "/" in name or "\\" in name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid filename")
+    cfg = load_web_config(_CONFIG_PATH)
+    base = cfg.get("capture", {}).get("output", {}).get("base_dir", "./sniff_data")
+    target = Path(base) / name
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    return FileResponse(str(target), filename=name, media_type="application/octet-stream")
+
+
+@app.get("/api/config")
+def api_config_get(user=Depends(require_user)):
+    try:
+        return _sanitize_config(_read_full_config())
+    except Exception as exc:
+        logger.warning("Read config failed: %s", exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Config unreadable")
+
+
+@app.put("/api/config")
+def api_config_put(body: dict, user=Depends(require_user)):
+    full = _read_full_config()
+    for top, sub in body.items():
+        if not isinstance(sub, dict):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"'{top}' must be object")
+        for k in sub.keys():
+            dotted = f"{top}.{k}"
+            if dotted not in CONFIG_WRITABLE:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Key '{dotted}' not writable via web")
+    full.update(body)
+    p = Path(_CONFIG_PATH)
+    with p.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(full, f, default_flow_style=False)
+    return {"ok": True}
+
+
+@app.get("/api/system/info")
+def api_system_info(user=Depends(require_user)):
+    import psutil, socket as _s
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    try:
+        nics = len(psutil.net_if_addrs())
+        hostname = _s.gethostname()
+    except Exception:
+        nics = 0; hostname = "unknown"
+    with open("/proc/uptime", "r") as f:
+        uptime_s = float(f.read().split()[0])
+    return {
+        "hostname": hostname, "uptime_seconds": int(uptime_s),
+        "loadavg": list(psutil.getloadavg()), "cpu_count": psutil.cpu_count(logical=True) or 1,
+        "mem_total_mb": mem.total // (1024 * 1024), "mem_available_mb": mem.available // (1024 * 1024),
+        "disk_total_gb": disk.total // (1024 ** 3), "disk_used_gb": disk.used // (1024 ** 3),
+        "nic_count": nics,
+    }
