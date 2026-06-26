@@ -23,9 +23,10 @@
 10. [Bước 8 — Khởi tạo schema ClickHouse](#bước-8--khởi-tạo-schema-clickhouse)
 11. [Bước 9 — Cài systemd services](#bước-9--cài-systemd-services)
 12. [Bước 10 — Khởi động & kiểm tra](#bước-10--khởi-động--kiểm-tra)
-13. [Cài đặt nhanh (capture tool đơn thuần)](#cài-đặt-nhanh-capture-tool-đơn-thuần)
-14. [Vận hành hàng ngày](#vận-hành-hàng-ngày)
-15. [Xử lý sự cố thường gặp](#xử-lý-sự-cố-thường-gặp)
+13. [Bước 11 — Cài Web GUI (sniff-web)](#bước-11--cài-web-gui-sniff-web)
+14. [Cài đặt nhanh (capture tool đơn thuần)](#cài-đặt-nhanh-capture-tool-đơn-thuần)
+15. [Vận hành hàng ngày](#vận-hành-hàng-ngày)
+16. [Xử lý sự cố thường gặp](#xử-lý-sự-cố-thường-gặp)
 
 ---
 
