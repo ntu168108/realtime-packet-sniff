@@ -94,7 +94,7 @@ import secrets
 import time
 import bcrypt
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Query, status
 
 _USERNAME = "admin"
 _PASSWORD_HASH = ""
@@ -129,6 +129,31 @@ def require_user(authorization: str = Header(None)) -> dict:
     token = authorization.split(" ", 1)[1].strip()
     try:
         payload = decode_token(token)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
+    return {"username": payload["sub"]}
+
+
+def require_user_query_or_header(
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = Query(None),
+) -> dict:
+    """FastAPI dependency: accept JWT from Authorization header OR ?token= query.
+
+    Used by /api/pcap/download/{name} so browser <a download> tags (which
+    cannot set Authorization headers) can pass the JWT via the URL.
+    """
+    raw = None
+    if authorization and authorization.lower().startswith("bearer "):
+        raw = authorization.split(" ", 1)[1].strip()
+    elif token:
+        raw = token
+    if not raw:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
+    try:
+        payload = decode_token(raw)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token expired")
     except jwt.PyJWTError:
@@ -664,7 +689,13 @@ def api_pcap_files(user=Depends(require_user)):
 
 
 @app.get("/api/pcap/download/{name}")
-def api_pcap_download(name: str, user=Depends(require_user)):
+def api_pcap_download(name: str, user=Depends(require_user_query_or_header)):
+    """Download a rotated PCAP file. Accepts JWT via Authorization header OR ?token= query.
+
+    The query-param variant exists because <a download> anchor tags cannot set
+    Authorization headers — the frontend embeds ?token= in the URL for those.
+    """
+    # Path traversal guard
     if ".." in name or "/" in name or "\\" in name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid filename")
     cfg = load_web_config(_CONFIG_PATH)

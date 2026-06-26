@@ -87,3 +87,25 @@ def test_all_misc_endpoints_require_auth(setup_env):
     client = setup_env
     for path in ["/api/pcap/files", "/api/config", "/api/system/info"]:
         assert client.get(path).status_code == 401
+
+
+def test_pcap_download_via_query_token(setup_env, tmp_path):
+    """<a download> links cannot set Authorization header; backend must accept ?token=."""
+    client = setup_env
+    tok = _login(client)
+    # Discover an existing pcap file from setup_env (which creates 2 in tmp_path/sniff_data)
+    import os as _os
+    pcap_dir = next(d for d in tmp_path.iterdir() if d.is_dir() and d.name == "sniff_data")
+    pcap_files = list(pcap_dir.glob("*.pcap*"))
+    assert pcap_files, "setup_env should have created test pcap files"
+    fname = pcap_files[0].name
+    # Request with ?token= only (no Authorization header) — simulates <a download>
+    r = client.get(f"/api/pcap/download/{fname}?token={tok}")
+    assert r.status_code == 200, f"pcap download via ?token= failed: {r.status_code} {r.text}"
+    assert r.content[:4] == b"\xd4\xc3\xb2\xa1", "Expected pcap magic bytes (libpcap format)"
+
+
+def test_pcap_download_rejects_bad_token(setup_env):
+    client = setup_env
+    r = client.get("/api/pcap/download/foo.pcap?token=invalid")
+    assert r.status_code == 401
