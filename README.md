@@ -219,6 +219,19 @@ The integration tests cover the pcap segment round-trip, Kafka segmenter
 behaviour, the ClickHouse sink type casters, config loading, idempotent
 re-processing, and display filter parsing.
 
+## Web GUI (sniff-web)
+
+A web-based control panel runs as `sniff-web.service` on port 8000. It manages
+the same capture engine the TUI uses, plus all 5 systemd services, Kafka topics,
+ClickHouse queries, and rotated PCAP files — all from a browser.
+
+See `sniff-web/docs/WEB_GUI.md` for full documentation. Quick start:
+
+```bash
+sudo bash scripts/install_web.sh
+# Open http://<server>:8000 — login admin / sniff
+```
+
 ## License
 
 [MIT](LICENSE) — see the `LICENSE` file.

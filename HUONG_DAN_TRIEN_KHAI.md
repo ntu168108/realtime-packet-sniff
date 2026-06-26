@@ -730,6 +730,29 @@ python3 MODULE_PHANLOAI/dos_classifier.py \
 
 ---
 
+## Bước 11 — Cài Web GUI (sniff-web)
+
+> Bước bổ sung tùy chọn, không cần thiết cho hệ thống IDS đã chạy ở Bước 10.
+> Web GUI cho phép điều khiển capture + 5 services từ trình duyệt.
+
+```bash
+sudo bash scripts/install_web.sh
+```
+
+Lệnh này sẽ:
+1. Cài `sniff-web/requirements-web.txt` (fastapi, uvicorn, pyjwt, bcrypt, clickhouse-driver, kafka-python-ng, psutil)
+2. Build frontend (`sniff-web/web/dist/`)
+3. Setcap `cap_net_admin,cap_net_raw+ep` cho Python (capture không cần root)
+4. Cài sudoers NOPASSWD (giới hạn systemctl + 6 services)
+5. Cài systemd unit `sniff-web.service` (User=tu)
+6. Khởi động sniff-web trên port 8000
+
+**Mở:** `http://<server>:8000` — đăng nhập `admin` / `sniff` (đổi pass ngay trong `config.yaml`).
+
+**Tự khởi động capture sau reboot:** Bấm Start trong UI với checkbox "auto-restore on reboot". Config được lưu vào `/var/lib/sniff-web/last_capture.json`; lifespan startup đọc và tự restart capture.
+
+Xem `sniff-web/docs/WEB_GUI.md` để biết chi tiết.
+
 ## Xử lý sự cố thường gặp
 
 ### ❌ `sniff-producer` không kết nối được Kafka

@@ -200,6 +200,19 @@ pytest -q
 
 Các integration test bao gồm round-trip pcap segment, hành vi Kafka segmenter, type caster ClickHouse sink, load config, xử lý lại idempotent, và parse display filter.
 
+## Web GUI (sniff-web)
+
+Giao diện web chạy như `sniff-web.service` trên port 8000. Quản lý capture engine
+y hệt TUI, kèm 5 systemd services, Kafka topics, ClickHouse queries, và file PCAP
+đã rotate — tất cả từ trình duyệt.
+
+Xem `sniff-web/docs/WEB_GUI.md` để biết chi tiết. Cài nhanh:
+
+```bash
+sudo bash scripts/install_web.sh
+# Mở http://<server>:8000 — đăng nhập admin / sniff
+```
+
 ## Giấy Phép
 
 [MIT](LICENSE) — xem file `LICENSE`.

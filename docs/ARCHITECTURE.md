@@ -294,3 +294,22 @@ inspect and tune these values.
 For day-2 operations (status checks, traffic replay with `tcpreplay`,
 Grafana URL, ClickHouse queries, log filtering) see
 [`docs/OPERATIONS.md`](OPERATIONS.md).
+
+## Web GUI
+
+The optional `sniff-web` service (FastAPI + React) is a single pane of glass:
+
+- **Capture control** — replaces the TUI for `start/stop/pause`, BPF filter, snaplen, promisc.
+- **Service control** — `systemctl start/stop/restart` on the 5 IDS services + `sniff-web` itself.
+- **Kafka admin** — topic list with partitions/replication; consumer-group lag.
+- **ClickHouse** — read-only SQL console with prefix allowlist.
+- **PCAP manager** — list rotated files, download via HTTP.
+- **Config editor** — edit allowlisted keys (`display.*`, `live.*`, `modules.*`, `performance.*`).
+- **Auto-restore** — last capture config persisted to `/var/lib/sniff-web/last_capture.json`; restored on boot.
+
+Runs as `User=tu` with `setcap cap_net_admin,cap_net_raw+ep` on `/usr/bin/python3.12`
+and a restricted sudoers rule that limits systemctl commands to 6 known services.
+Systemd unit applies standard hardening (`NoNewPrivileges`, `ProtectSystem=strict`,
+`ProtectHome=read-only`, `PrivateTmp`).
+
+Full doc: `sniff-web/docs/WEB_GUI.md`.
