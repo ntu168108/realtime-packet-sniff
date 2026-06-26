@@ -1,19 +1,28 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { useState, useCallback } from 'react';
+import { Sidebar } from './components/Sidebar';
+import { TopBar } from './components/TopBar';
+import { getToken, setToken } from './hooks/useApi';
+import Dashboard from './pages/Dashboard';
 
 export default function App() {
-  const [token, setTok] = useState<string | null>(() => localStorage.getItem('sniff_jwt'));
+  const [token, setTok] = useState<string | null>(getToken());
 
   const logout = useCallback(() => {
-    localStorage.removeItem('sniff_jwt');
+    setToken(null);
     setTok(null);
   }, []);
 
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<Login onLogin={(t) => { localStorage.setItem('sniff_jwt', t); setTok(t); }} />} />
-        <Route path="/*" element={token ? <Layout onLogout={logout} /> : <Navigate to="/login" />} />
+        <Route path="/login" element={<Login onLogin={(t) => { setToken(t); setTok(t); }} />} />
+        <Route
+          path="/*"
+          element={
+            token ? <AuthenticatedLayout onLogout={logout} /> : <Navigate to="/login" />
+          }
+        />
       </Routes>
     </BrowserRouter>
   );
@@ -29,7 +38,8 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
     setError(null);
     try {
       const r = await fetch('/api/auth/login', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
       if (!r.ok) {
@@ -38,7 +48,7 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
         return;
       }
       const body = await r.json();
-      localStorage.setItem('sniff_jwt', body.token);
+      setToken(body.token);
       onLogin(body.token);
     } catch (e: any) {
       setError(`Network error: ${e.message}`);
@@ -60,23 +70,18 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
   );
 }
 
-function Layout({ onLogout }: { onLogout: () => void }) {
+function AuthenticatedLayout({ onLogout }: { onLogout: () => void }) {
+  const location = useLocation();
   return (
     <div className="app-layout">
-      <header className="topbar">
-        <span className="logo">SNIFF</span>
-        <span className="grow" />
-        <span className="user">admin</span>
-        <button onClick={onLogout}>Logout</button>
-      </header>
-      <nav className="sidebar">
-        <a href="/dashboard">Dashboard</a>
-      </nav>
+      <TopBar user="admin" onLogout={onLogout} />
+      <Sidebar />
       <main className="main">
-        <div className="card">
-          <h2>Layout scaffold OK</h2>
-          <p>Real pages will be added in subsequent tasks.</p>
-        </div>
+        <Routes>
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          {/* additional pages added in subsequent tasks */}
+        </Routes>
       </main>
     </div>
   );
