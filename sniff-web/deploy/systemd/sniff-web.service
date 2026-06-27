@@ -15,7 +15,10 @@ User=tu
 WorkingDirectory=/opt/realtime-packet-sniff/sniff-web
 # PYTHONPATH is set by install_web.sh from `python3 -c "import site; ..."`
 # so the service picks up the same site-packages the installer used.
-Environment=PYTHONPATH=/home/tu/.local/lib/python3.12/site-packages
+# The second path (the repo root) is appended by install_web.sh so
+# that `from core.capture import ...` resolves inside the worker.
+# Default fallback is /opt/realtime-packet-sniff for legacy installs.
+Environment=PYTHONPATH=/home/tu/.local/lib/python3.12/site-packages:/opt/realtime-packet-sniff
 ExecStart=/usr/bin/python3 -m uvicorn web_server:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=5

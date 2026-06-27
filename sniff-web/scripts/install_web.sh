@@ -137,10 +137,11 @@ if [[ ! -f "$UNIT_SRC" ]]; then
     exit 1
 fi
 TMP_UNIT="$(mktemp)"
+SITE_PKG="$(python3 -c 'import site; print(site.getusersitepackages())')"
 sed \
     -e "s|/opt/realtime-packet-sniff|${REPO_DIR}|g" \
     -e "s|^User=tu|User=${REAL_USER}|" \
-    -e "s|^Environment=PYTHONPATH=.*|Environment=PYTHONPATH=$(python3 -c 'import site; print(site.getusersitepackages())')|" \
+    -e "s|^Environment=PYTHONPATH=.*|Environment=PYTHONPATH=${SITE_PKG}:${REPO_DIR}|" \
     "$UNIT_SRC" > "$TMP_UNIT"
 install -m 0644 -o root -g root "$TMP_UNIT" "$UNIT_DEST"
 rm -f "$TMP_UNIT"

@@ -33,3 +33,59 @@ export interface LastConfig {
   promisc: boolean; auto_restore: boolean; saved_at: string;
 }
 export interface WSMessage<T> { type: string; data: T; }
+
+// --- Dashboard summary (new) ----------------------------------------------
+export interface AlertItem {
+  alert_id: string;
+  label: string;
+  src?: string; dst?: string;
+  sport?: number; dport?: number;
+  proto?: string;
+  priority?: string;            // 'low' | 'medium' | 'high' | 'critical'
+  category?: string;
+  ts_sec?: number;
+  received_at?: number;         // epoch s when the alert was ingested
+  details?: Record<string, unknown>;
+}
+export interface RateHistory {
+  pps: number[];
+  bps: number[];
+  ts: number[];
+}
+export interface TopTalker {
+  proto: string;
+  src: string;                  // "ip:port"
+  dst: string;                  // "ip:port"
+  packets: number;
+  bytes: number;
+  duration: number;
+}
+export interface DashboardSummary {
+  capture: CaptureStatus;
+  services: ServiceStatus[];
+  counts: Counts;
+  protocols: Record<string, number>;
+  top_talkers: TopTalker[];
+  alerts_recent: AlertItem[];
+  rate_history: RateHistory;
+  grafana_url: string;          // "" if not configured
+  generated_at: number;
+}
+
+// --- Integrations credentials (new) ---------------------------------------
+export interface IntegrationCredential {
+  url: string;
+  username: string;
+  password: string | null;
+  password_hint?: string;
+  note?: string;
+  dashboard_path?: string;      // grafana only
+  native_port?: number;         // clickhouse only
+  protocol?: string;            // kafka only
+}
+export interface IntegrationsPayload {
+  sniff_web: IntegrationCredential;
+  grafana:   IntegrationCredential;
+  clickhouse: IntegrationCredential;
+  kafka:     IntegrationCredential;
+}

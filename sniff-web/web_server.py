@@ -23,6 +23,18 @@ DEFAULTS: Dict[str, Any] = {
     "jwt_expiry_seconds": 86400,
     "auto_restore": True,
     "persistence_dir": "/var/lib/sniff-web",
+    # External integrations (surfaced on /credentials, linked from Dashboard)
+    "grafana_url": "",
+    "grafana_admin_password": "",
+    "grafana_dashboard_path": "/d/network-ids/network-ids-overview",
+    "integrations": {
+        "clickhouse": {"url": "http://localhost:8123", "username": "default", "password": ""},
+        "kafka":      {"url": "localhost:9092", "username": "", "password": "", "protocol": "PLAINTEXT"},
+    },
+    # Server-side history buffers for the dashboard
+    "alert_ring_size": 20,
+    "rate_history_size": 60,        # samples
+    "rate_history_interval": 5,     # seconds per sample
 }
 
 
@@ -200,8 +212,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+# `core/` lives one level above this file (at the repo root) and
+# `sniff-web/` modules (e.g. requirements_web helpers) live next to it.
+# Insert the repo root FIRST so that `import core.capture` resolves
+# regardless of CWD; the systemd unit's PYTHONPATH also carries the
+# repo root (see install_web.sh step [5/8]).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))                # has core/, modules/, sniff.py
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # has web_*.py siblings
+
 try:
-    sys.path.insert(0, str(Path(__file__).parent))
     from core.capture import CaptureEngine, get_interfaces, validate_interface, get_interface_info
     from core.decoder import decode_packet
 except ImportError as e:
@@ -228,9 +248,73 @@ def _make_engine(**kwargs):
 # Packet broadcast pipeline (asyncio queues + callbacks + WS fan-out)
 # ---------------------------------------------------------------------------
 
+import asyncio
+import contextlib
+from collections import deque
+
 _loop: Optional[asyncio.AbstractEventLoop] = None
 _pkt_queue: Optional[asyncio.Queue] = None
 _drop_queue: Optional[asyncio.Queue] = None
+
+# ---------------------------------------------------------------------------
+# Dashboard history buffers (rate_history + alert ring)
+# ---------------------------------------------------------------------------
+# Configured in configure_dashboard_history() from web config on startup.
+_alert_ring: "deque[dict]" = deque(maxlen=20)
+_rate_pps: "deque[float]" = deque(maxlen=60)
+_rate_bps: "deque[float]" = deque(maxlen=60)
+_rate_ts: "deque[float]" = deque(maxlen=60)
+_history_task: Optional[asyncio.Task] = None
+
+
+def configure_dashboard_history(alert_ring_size: int, rate_history_size: int) -> None:
+    """Re-size the history buffers from config. Called once on startup."""
+    global _alert_ring, _rate_pps, _rate_bps, _rate_ts
+    _alert_ring = deque(maxlen=max(1, int(alert_ring_size)))
+    _rate_pps = deque(maxlen=max(1, int(rate_history_size)))
+    _rate_bps = deque(maxlen=max(1, int(rate_history_size)))
+    _rate_ts = deque(maxlen=max(1, int(rate_history_size)))
+
+
+def record_alert(det: dict) -> None:
+    """Append an alert to the ring. Safe to call from any thread."""
+    if not isinstance(det, dict):
+        return
+    _alert_ring.append(det)
+
+
+def snapshot_rate_history() -> dict:
+    return {
+        "pps": list(_rate_pps),
+        "bps": list(_rate_bps),
+        "ts":  list(_rate_ts),
+    }
+
+
+async def _history_loop(interval_s: float) -> None:
+    """Sample capture stats every `interval_s` seconds into _rate_* deques."""
+    while True:
+        try:
+            await asyncio.sleep(interval_s)
+            eng = getattr(app.state, "engine", None)
+            if eng is None:
+                # Engine absent — record zeros so the sparkline stays continuous
+                _rate_pps.append(0.0)
+                _rate_bps.append(0.0)
+                _rate_ts.append(time.time())
+                continue
+            try:
+                status = eng.get_status()
+            except Exception as exc:                                # pragma: no cover
+                logger.debug("history sample failed: %s", exc)
+                continue
+            _rate_pps.append(float(status.get("pps", 0.0) or 0.0))
+            _rate_bps.append(float(status.get("bps", 0.0) or 0.0))
+            _rate_ts.append(time.time())
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:                                    # pragma: no cover
+            logger.debug("history_loop error: %s", exc)
 
 
 def _cb_packet(pkt_info):
@@ -372,14 +456,25 @@ async def _on_startup():
         configure_auth(username=cfg["username"], password_hash=cfg["password_hash"],
                        jwt_secret=cfg["jwt_secret"], jwt_expiry=cfg["jwt_expiry_seconds"])
     app.state.persistence_dir = persistence
+    # Cache the parsed web config so request handlers don't re-parse YAML
+    # on every call. /api/auth/change-password invalidates this.
+    app.state.web_config = cfg
 
     # Initialize asyncio queues and start broadcast tasks
-    global _loop, _pkt_queue, _drop_queue
+    global _loop, _pkt_queue, _drop_queue, _history_task
     _loop = asyncio.get_running_loop()
     _pkt_queue = asyncio.Queue(maxsize=4000)
     _drop_queue = asyncio.Queue(maxsize=200)
     asyncio.create_task(_broadcast_packets())
     asyncio.create_task(_broadcast_stats())
+
+    # Dashboard history buffers + 5-second sampler
+    configure_dashboard_history(
+        alert_ring_size=cfg.get("alert_ring_size", 20),
+        rate_history_size=cfg.get("rate_history_size", 60),
+    )
+    interval = float(cfg.get("rate_history_interval", 5) or 5)
+    _history_task = asyncio.create_task(_history_loop(interval))
     if cfg["auto_restore"]:
         last = read_last_capture(persistence)
         if last and last.get("auto_restore") and last.get("interface"):
@@ -400,6 +495,10 @@ async def _on_shutdown():
     eng = getattr(app.state, "engine", None)
     if eng and getattr(eng, "is_running", False):
         eng.stop()
+    if _history_task is not None:
+        _history_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await _history_task
 
 
 @app.get("/api/interfaces")
@@ -472,6 +571,140 @@ def api_conversations(n: int = 20, user=Depends(require_user)):
     if not eng or not getattr(eng, "is_running", False):
         return []
     return eng.get_top_conversations(n)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summary + alert ingest + integrations (Task: visual dashboard)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/dashboard/summary")
+def api_dashboard_summary(user=Depends(require_user)):
+    """Aggregated payload for the redesigned Dashboard in one round-trip."""
+    eng = getattr(app.state, "engine", None)
+    if eng is not None:
+        try:
+            capture = eng.get_status()
+        except Exception:
+            capture = {"running": False, "pps": 0, "bps": 0, "packets": 0,
+                       "dropped": 0, "protocols": {}, "uptime": 0}
+        try:
+            top = eng.get_top_conversations(10)
+        except Exception:
+            top = []
+    else:
+        capture = {"running": False, "pps": 0, "bps": 0, "packets": 0,
+                   "dropped": 0, "protocols": {}, "uptime": 0}
+        top = []
+
+    cfg = getattr(app.state, "web_config", {}) or {}
+    grafana_url = (cfg.get("grafana_url") or "").rstrip("/")
+    grafana_path = cfg.get("grafana_dashboard_path") or "/d/network-ids/network-ids-overview"
+    grafana_full = f"{grafana_url}{grafana_path}" if grafana_url else ""
+
+    return {
+        "capture": capture,
+        "services": list_services_status(),
+        "counts": _clickhouse_counts_safe(),
+        "protocols": capture.get("protocols", {}) or {},
+        "top_talkers": top,
+        "alerts_recent": list(_alert_ring),
+        "rate_history": snapshot_rate_history(),
+        "grafana_url": grafana_full,
+        "generated_at": time.time(),
+    }
+
+
+def _clickhouse_counts_safe() -> dict:
+    """Run the same SELECTs as /api/clickhouse/counts but inline, so the
+    Depends(require_user) context isn't required and failures are swallowed."""
+    families = ["dos", "exploits", "fuzzers", "generic", "analysis",
+                "reconnaissance", "shellcode"]
+    out = {}
+    try:
+        r = query_clickhouse("SELECT count() FROM network_ids.flows_all", 1)
+        out["flows_all"] = r["rows"][0][0] if r["rows"] else 0
+        for fam in families:
+            r = query_clickhouse(f"SELECT count() FROM network_ids.flows_{fam}", 1)
+            out[f"flows_{fam}"] = r["rows"][0][0] if r["rows"] else 0
+        r = query_clickhouse("SELECT count() FROM network_ids.pipeline_runs", 1)
+        out["pipeline_runs"] = r["rows"][0][0] if r["rows"] else 0
+    except Exception as exc:                                    # pragma: no cover
+        logger.debug("clickhouse counts failed: %s", exc)
+        return {}
+    return out
+
+
+@app.post("/api/alerts")
+def api_alerts_ingest(det: dict, user=Depends(require_user)):
+    """Append a Detection into the alert ring. Producers call this from
+    LiveRunner / alert sinks. Returns the alert_id stored."""
+    det = dict(det or {})
+    det.setdefault("received_at", time.time())
+    if "alert_id" not in det and det.get("label"):
+        det["alert_id"] = f"{det.get('label')}-{int(det.get('ts_sec', time.time()))}-{int(time.time()*1000) % 100000}"
+    record_alert(det)
+    return {"ok": True, "alert_id": det.get("alert_id")}
+
+
+@app.get("/api/integrations/credentials")
+def api_integrations_credentials(user=Depends(require_user)):
+    """Return per-service URL + username + password for the /credentials page.
+
+    The sniff_web admin password is NOT returned in plaintext — only the
+    bcrypt hash is in the config — so we render a hint instead. Other
+    services return whatever is configured (empty string → "not configured").
+    """
+    cfg = getattr(app.state, "web_config", {}) or {}
+    integrations = cfg.get("integrations") or {}
+    ch = integrations.get("clickhouse") or {}
+    kf = integrations.get("kafka") or {}
+
+    bind = cfg.get("bind", "0.0.0.0")
+    port = cfg.get("port", 8000)
+    if bind in ("0.0.0.0", "::"):
+        # Show the host's primary IP rather than 0.0.0.0 — more useful as a link
+        import socket
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.connect(("8.8.8.8", 80))
+            host = sock.getsockname()[0]
+            sock.close()
+        except Exception:
+            host = "localhost"
+    else:
+        host = bind
+
+    return {
+        "sniff_web": {
+            "url": f"http://{host}:{port}",
+            "username": cfg.get("username") or "admin",
+            # bcrypt hash isn't reversible — hint the user where the password lives
+            "password": None,
+            "password_hint": "Set in config.yaml under web.password_hash (or auto-generated by install_web.sh)",
+            "note": "Password is bcrypt-hashed; cannot be displayed. Change via /api/auth/change-password.",
+        },
+        "grafana": {
+            "url": (cfg.get("grafana_url") or f"http://{host}:3000"),
+            "username": "admin",
+            "password": cfg.get("grafana_admin_password") or None,
+            "dashboard_path": cfg.get("grafana_dashboard_path") or "/d/network-ids/network-ids-overview",
+            "note": "Default is admin/admin unless overridden.",
+        },
+        "clickhouse": {
+            "url": ch.get("url") or "http://localhost:8123",
+            "username": ch.get("username") or "default",
+            "password": ch.get("password") or None,
+            "native_port": 9000,
+            "note": "HTTP interface for read-only SQL queries.",
+        },
+        "kafka": {
+            "url": kf.get("url") or "localhost:9092",
+            "username": kf.get("username") or None,
+            "password": kf.get("password") or None,
+            "protocol": kf.get("protocol") or "PLAINTEXT",
+            "note": "PLAINTEXT bootstrap; SASL not yet configured.",
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ const ITEMS = [
   { path: '/dashboard', label: 'Dashboard' },
   { path: '/capture', label: 'Capture' },
   { path: '/services', label: 'Services' },
+  { path: '/credentials', label: 'Credentials' },
   { path: '/pcap', label: 'PCAP files' },
   { path: '/kafka', label: 'Kafka' },
   { path: '/clickhouse', label: 'ClickHouse' },

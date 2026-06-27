@@ -1,7 +1,8 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useApi } from '../hooks/useApi';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { PacketTableInner } from '../components/PacketTable';
+import { ApiError } from '../hooks/useApi';
 import type { InterfaceInfo, CaptureStatus, PacketRow, LastConfig } from '../types';
 
 const MAX_PACKETS = 5000;
@@ -19,6 +20,9 @@ export default function Capture() {
   const packetsRef = useRef<PacketRow[]>([]);
   const parentRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const [lastConfig, setLastConfig] = useState<LastConfig | null>(null);
+  const [loading, setLoading] = useState(true);
 
   // Stats WS for status
   useWebSocket<{ type: string; data: CaptureStatus }>('/ws/stats', (msg) => {
@@ -42,21 +46,56 @@ export default function Capture() {
         setInterfaces(ifs);
         if (ifs.length && !iface) setIface(ifs[0].name);
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : String(e));
+        // 503 from /api/interfaces means the backend couldn't import core.capture.
+        // Show a diagnostic so the operator knows where to look.
+        const msg = e instanceof ApiError && e.status === 503
+          ? 'core.capture unavailable — sniff-web could not import core.capture.'
+          : e instanceof Error ? e.message : String(e);
+        setError(msg);
+        if (e instanceof ApiError && e.status === 503) {
+          setDiagnostic(
+            'The backend tried to import `core.capture` but the module is unreachable.\n' +
+            'Most common cause: PYTHONPATH does not include the repo root.\n' +
+            'Fix on the server:\n' +
+            '  1. systemctl cat sniff-web | grep -i PYTHONPATH\n' +
+            '  2. The line should end with :<repo-root>, e.g.\n' +
+            '       Environment=PYTHONPATH=...site-packages:/opt/realtime-packet-sniff\n' +
+            '  3. sudo systemctl daemon-reload && sudo systemctl restart sniff-web\n' +
+            '  4. journalctl -u sniff-web -n 80 --no-pager  (look for the import error)'
+          );
+        }
       }
       try {
         const lc = await api.get<LastConfig>('/api/capture/last-config');
+        setLastConfig(lc);
         setIface(lc.interface);
         setBpf(lc.bpf_filter || '');
         setSnaplen(lc.snaplen);
         setPromisc(lc.promisc);
         setAutoRestore(lc.auto_restore);
       } catch {
-        /* no last config */
+        /* no last config — first run */
+      } finally {
+        setLoading(false);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setDiagnostic(null);
+    try {
+      const ifs = await api.get<InterfaceInfo[]>('/api/interfaces');
+      setInterfaces(ifs);
+      if (ifs.length && !iface) setIface(ifs[0].name);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [api, iface]);
 
   async function start() {
     setError(null);
@@ -93,24 +132,54 @@ export default function Capture() {
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px - 32px)' }}>
       <div className="card">
         <h2>Capture control</h2>
-        {error && <div className="error">{error}</div>}
+        {error && (
+          <div className="error">
+            <div>{error}</div>
+            {diagnostic && (
+              <pre
+                className="mono"
+                style={{
+                  fontSize: 11,
+                  whiteSpace: 'pre-wrap',
+                  marginTop: 8,
+                  padding: 8,
+                  background: 'var(--surf2)',
+                  borderRadius: 4,
+                }}
+              >
+                {diagnostic}
+              </pre>
+            )}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div>
             <label className="muted" style={{ fontSize: 11 }}>
               Interface
             </label>
             <br />
-            <select
-              value={iface}
-              onChange={(e) => setIface(e.target.value)}
-              disabled={!!status?.running}
-            >
-              {interfaces.map((i) => (
-                <option key={i.name} value={i.name}>
-                  {i.name} ({i.ipv4 || 'no IP'})
-                </option>
-              ))}
-            </select>
+            {interfaces.length === 0 ? (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span className="muted mono" style={{ fontSize: 12 }}>
+                  {loading ? 'loading…' : 'none detected'}
+                </span>
+                <button className="btn ghost" onClick={reload} disabled={loading}>
+                  Reload
+                </button>
+              </div>
+            ) : (
+              <select
+                value={iface}
+                onChange={(e) => setIface(e.target.value)}
+                disabled={!!status?.running}
+              >
+                {interfaces.map((i) => (
+                  <option key={i.name} value={i.name}>
+                    {i.name} ({i.ipv4 || 'no IP'})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
             <label className="muted" style={{ fontSize: 11 }}>
@@ -205,6 +274,23 @@ export default function Capture() {
           onAppend={() => {}}
         />
       </div>
+
+      {lastConfig && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <h2>Last persisted config</h2>
+          <pre
+            className="mono"
+            style={{ fontSize: 12, margin: 0, whiteSpace: 'pre-wrap', color: 'var(--muted)' }}
+          >
+{`interface      : ${lastConfig.interface}
+bpf_filter     : ${lastConfig.bpf_filter || '(none)'}
+snaplen        : ${lastConfig.snaplen}
+promisc        : ${lastConfig.promisc}
+auto_restore   : ${lastConfig.auto_restore}
+saved_at       : ${lastConfig.saved_at}`}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
