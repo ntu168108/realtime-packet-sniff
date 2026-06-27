@@ -25,7 +25,13 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=sniff-web
-NoNewPrivileges=true
+# NoNewPrivileges=false because sniff-web invokes `sudo systemctl ...` to
+# manage peer services (kafka/clickhouse/grafana/...). The sudoers rule
+# under /etc/sudoers.d/sniff-web is locked down to a fixed Cmnd_Alias
+# (5 actions × 6 services = 30 commands), so the security exposure is
+# minimal. Turning NoNewPrivileges=true back on would break service
+# management from the Web UI — see README troubleshooting.
+NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=true
