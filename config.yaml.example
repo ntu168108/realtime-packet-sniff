@@ -22,8 +22,11 @@ capture:
 
   # ===== Storage =====
   output:
-    # Thư mục gốc cho PCAP files
-    base_dir: ./sniff_data
+    # Thư mục gốc cho PCAP files. Phải nằm trong systemd ReadWritePaths=
+    # (mặc định /var/lib/sniff-web). /var/lib/sniff-web/sniff_data works out of
+    # the box; dùng ./sniff_data sẽ bị "Read-only file system" khi chạy dưới
+    # systemd do ProtectSystem=strict.
+    base_dir: /var/lib/sniff-web/sniff_data
 
     # Số ngày giữ file (0 = giữ mãi)
     retention_days: 7
