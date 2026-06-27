@@ -224,6 +224,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))   # has web_*.py siblin
 try:
     from core.capture import CaptureEngine, get_interfaces, validate_interface, get_interface_info
     from core.decoder import decode_packet
+    from core.rotator import HourlyRotator
 except ImportError as e:
     logger.warning("Could not import core.capture: %s", e)
     CaptureEngine = None
@@ -231,6 +232,7 @@ except ImportError as e:
     validate_interface = None
     get_interface_info = None
     decode_packet = None
+    HourlyRotator = None
 
 PERSISTENCE_DIR_OVERRIDE = None
 _test_engine_factory = None
@@ -242,6 +244,34 @@ def _make_engine(**kwargs):
     if CaptureEngine is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Capture engine unavailable")
     return CaptureEngine(**kwargs)
+
+
+def _make_rotator(interface: str, snaplen: int):
+    """Build an HourlyRotator from app.state.full_config (capture.output.*).
+
+    Returns None when core.rotator is unavailable or config is missing — the
+    CaptureEngine still runs (packets stream to the UI), only the on-disk
+    pcap files are skipped. The UI shows a non-fatal warning in that case.
+    """
+    if HourlyRotator is None:
+        logger.warning("HourlyRotator unavailable; PCAP files will NOT be written")
+        return None
+    cfg = getattr(app.state, "full_config", {}) or {}
+    out = (cfg.get("capture") or {}).get("output") or {}
+    if not out:
+        logger.warning("capture.output missing in config; PCAP files will NOT be written")
+        return None
+    logger.info("Building HourlyRotator: base_dir=%s interface=%s snaplen=%d retention=%d max_file=%d",
+                out.get("base_dir"), interface, snaplen,
+                int(out.get("retention_days", 7)), int(out.get("max_file_size", 500 * 1024 * 1024)))
+    return HourlyRotator(
+        base_dir=out.get("base_dir", "./sniff_data"),
+        interface=interface,
+        snaplen=snaplen,
+        retention_days=int(out.get("retention_days", 7)),
+        max_file_size=int(out.get("max_file_size", 500 * 1024 * 1024)),
+        compress=bool(out.get("compress", False)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +489,19 @@ async def _on_startup():
     # Cache the parsed web config so request handlers don't re-parse YAML
     # on every call. /api/auth/change-password invalidates this.
     app.state.web_config = cfg
+    # Also cache the FULL config.yaml (top-level keys: capture, web, ...).
+    # Some handlers (e.g. _make_rotator) need the `capture.output` block
+    # which lives at the top level, not under `web:`.
+    try:
+        with open("config.yaml", "r", encoding="utf-8") as f:
+            app.state.full_config = yaml.safe_load(f) or {}
+    except OSError:
+        try:
+            with open(Path(__file__).resolve().parent.parent / "config.yaml",
+                      "r", encoding="utf-8") as f:
+                app.state.full_config = yaml.safe_load(f) or {}
+        except OSError:
+            app.state.full_config = {}
 
     # Initialize asyncio queues and start broadcast tasks
     global _loop, _pkt_queue, _drop_queue, _history_task
@@ -480,10 +523,13 @@ async def _on_startup():
         if last and last.get("auto_restore") and last.get("interface"):
             if validate_interface(last["interface"]):
                 logger.info("Auto-restoring capture on %s", last["interface"])
+                rotator = _make_rotator(last["interface"], last.get("snaplen", 65535))
                 app.state.engine = _make_engine(
                     interface=last["interface"], bpf_filter=last.get("bpf_filter", ""),
                     snaplen=last.get("snaplen", 65535), promisc=last.get("promisc", True),
+                    rotator=rotator,
                     on_packet_filtered=_cb_packet, on_drop=_cb_drop)
+                app.state.rotator = rotator
                 app.state.engine.setup()
                 app.state.engine.start()
             else:
@@ -495,6 +541,12 @@ async def _on_shutdown():
     eng = getattr(app.state, "engine", None)
     if eng and getattr(eng, "is_running", False):
         eng.stop()
+    rotator = getattr(app.state, "rotator", None)
+    if rotator is not None:
+        try:
+            rotator.close()
+        except Exception as exc:
+            logger.debug("rotator close error: %s", exc)
     if _history_task is not None:
         _history_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -515,12 +567,15 @@ def api_start(body: StartBody, user=Depends(require_user)):
     eng = getattr(app.state, "engine", None)
     if eng and getattr(eng, "is_running", False):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Capture already running")
+    rotator = _make_rotator(body.interface, body.snaplen)
     new_engine = _make_engine(interface=body.interface, bpf_filter=body.bpf_filter,
                               snaplen=body.snaplen, promisc=body.promisc,
+                              rotator=rotator,
                               on_packet_filtered=_cb_packet, on_drop=_cb_drop)
     new_engine.setup()
     new_engine.start()
     app.state.engine = new_engine
+    app.state.rotator = rotator
     write_last_capture(app.state.persistence_dir, {
         "interface": body.interface, "bpf_filter": body.bpf_filter, "snaplen": body.snaplen,
         "promisc": body.promisc, "auto_restore": body.auto_restore,
@@ -936,34 +991,60 @@ def _sanitize_config(cfg: dict) -> dict:
 
 @app.get("/api/pcap/files")
 def api_pcap_files(user=Depends(require_user)):
-    cfg = load_web_config(_CONFIG_PATH)
+    cfg = _read_full_config()
     base = cfg.get("capture", {}).get("output", {}).get("base_dir", "./sniff_data")
     base_path = Path(base)
     if not base_path.exists():
         return []
+    # HourlyRotator writes {base}/YYYY-MM-DD/{interface}_YYYY-MM-DD_HH.pcap[.gz]
+    # so we have to rglob the directory tree, not just the top level.
     out = []
-    for p in sorted(base_path.glob("*.pcap*"), key=lambda x: x.stat().st_mtime, reverse=True)[:500]:
-        st = p.stat()
-        out.append({"name": p.name, "size": st.st_size, "mtime": int(st.st_mtime)})
-    return out
+    candidates = list(base_path.glob("*.pcap*"))
+    candidates.extend(base_path.rglob("*.pcap*"))
+    seen = set()
+    for p in candidates:
+        if str(p) in seen:
+            continue
+        seen.add(str(p))
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        out.append({
+            "name": p.name,
+            "relpath": str(p.relative_to(base_path)),
+            "size": st.st_size,
+            "mtime": int(st.st_mtime),
+        })
+    out.sort(key=lambda x: x["mtime"], reverse=True)
+    return out[:500]
 
 
-@app.get("/api/pcap/download/{name}")
-def api_pcap_download(name: str, user=Depends(require_user_query_or_header)):
+@app.get("/api/pcap/download/{relpath:path}")
+def api_pcap_download(relpath: str, user=Depends(require_user_query_or_header)):
     """Download a rotated PCAP file. Accepts JWT via Authorization header OR ?token= query.
 
     The query-param variant exists because <a download> anchor tags cannot set
     Authorization headers — the frontend embeds ?token= in the URL for those.
+
+    `relpath` is path-relative-to-base (e.g. `2026-06-27/ens18_2026-06-27_07.pcap`).
+    We guard against `..` traversal by resolving the candidate and confirming
+    it stays under the configured base_dir.
     """
     # Path traversal guard
-    if ".." in name or "/" in name or "\\" in name:
+    if ".." in relpath or relpath.startswith("/"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid filename")
-    cfg = load_web_config(_CONFIG_PATH)
+    cfg = _read_full_config()
     base = cfg.get("capture", {}).get("output", {}).get("base_dir", "./sniff_data")
-    target = Path(base) / name
+    base_path = Path(base).resolve()
+    target = (base_path / relpath).resolve()
+    try:
+        target.relative_to(base_path)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Path escapes base_dir")
     if not target.exists() or not target.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
-    return FileResponse(str(target), filename=name, media_type="application/octet-stream")
+    return FileResponse(str(target), filename=target.name, media_type="application/octet-stream")
 
 
 @app.get("/api/config")
