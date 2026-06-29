@@ -225,6 +225,12 @@ A web-based control panel runs as `sniff-web.service` on port 8000. It manages
 the same capture engine the TUI uses, plus all 5 systemd services, Kafka topics,
 ClickHouse queries, and rotated PCAP files — all from a browser.
 
+> **v0.4.0:** changing the interface on `/capture` now also restarts the
+> Kafka/ClickHouse pipeline (`sniff-producer`) so the UI and the backend
+> classification pipeline always point at the same NIC. `/credentials`
+> auto-detects the IP of the currently-captured interface (via
+> `psutil.net_if_addrs`) when surfacing Grafana / ClickHouse / Kafka URLs.
+
 See `sniff-web/docs/WEB_GUI.md` for full documentation. Quick start:
 
 ```bash

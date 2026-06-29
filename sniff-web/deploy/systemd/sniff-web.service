@@ -35,7 +35,10 @@ NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=true
-ReadWritePaths=/var/lib/sniff-web /var/log/sniff-web
+# v0.4.0: /capture page rewrites config.yaml when the operator changes
+# the capture interface, so the repo root must be writable from the service.
+# install_web.sh replaces the path below with the actual repo location.
+ReadWritePaths=/var/lib/sniff-web /var/log/sniff-web /opt/realtime-packet-sniff
 
 [Install]
 WantedBy=multi-user.target

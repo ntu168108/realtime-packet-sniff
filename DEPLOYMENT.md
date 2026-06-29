@@ -5,7 +5,7 @@
 
 **Tested on:** Ubuntu 22.04 / 24.04 LTS (x86-64)  
 **Estimated setup time:** 45 – 90 minutes  
-**Version:** v0.3.0
+**Version:** v0.4.0
 
 ---
 
@@ -80,6 +80,12 @@ NIC (ens33)
    - **Step 4/4:** `dos_classifier.py` → detailed SYN / UDP / ICMP Flood scoring.
 4. `ClickHouseSink` writes results to 7 `flows_<family>` tables + the `pipeline_runs` audit table.
 5. Grafana reads ClickHouse and renders the dashboard.
+
+**v0.4.0 — Web ↔ Producer sync:** the `sniff-web` UI no longer just runs the
+in-process capture engine. When the operator changes the interface or BPF
+filter on the `/capture` page and clicks **Start**, `sniff-web` also writes
+those values to `config.yaml` and runs `sudo systemctl restart sniff-producer`,
+so the Kafka/ClickHouse pipeline always points at the same NIC as the UI.
 
 ---
 
@@ -859,6 +865,41 @@ See `sniff-web/docs/WEB_GUI.md` for the full API and UI tour.
 | `chown: invalid user: 'tu:tu'` | Hard-coded user (old bug) | Run via `sudo bash` so `$SUDO_USER` is set |
 | Login fails with `admin/sniff` | `config.yaml` has placeholder bcrypt hash, OR `web:` is indented under `capture:` in your config | Re-run installer (auto-generates) — or move `web:` to top-level in your config.yaml |
 
+### 11.5 Capture interface sync (v0.4.0)
+
+Starting with v0.4.0 the `/capture` page keeps the UI capture engine and the
+background `sniff-producer` service in lockstep. Clicking **Start** does all
+of the following in one shot:
+
+1. Applies the new interface / BPF filter to the in-process capture engine.
+2. Writes `capture.interface` and `capture.bpf_filter` back to `config.yaml`.
+3. Runs `sudo systemctl restart sniff-producer` (covered by the
+   `/etc/sudoers.d/sniff-web` allowlist installed by `install_web.sh`).
+
+**Verify it's working:**
+
+```bash
+# 1. The config was updated
+grep -A1 '^capture:' /var/lib/sniff-web/config.yaml | head -4
+
+# 2. The producer picked up the new interface
+sudo journalctl -u sniff-producer -n 20 --no-pager | grep -i interface
+
+# 3. The API reports a successful sync
+curl -s -b /tmp/cookie.txt http://localhost:8000/api/capture/status | jq .sniff_producer
+```
+
+**Troubleshooting:**
+
+- If `POST /api/capture/start` returns `sniff_producer.restarted=false`, run
+  `sudo -n systemctl restart sniff-producer` manually. If that prompts for a
+  password, the sudoers allowlist is missing or stale — re-run
+  `sudo bash sniff-web/scripts/install_web.sh` (Step 4 installs
+  `/etc/sudoers.d/sniff-web`).
+- If the capture engine runs but Kafka stays silent, check that the new
+  interface still exists with `ip link show` and that `cap_net_admin` /
+  `cap_net_raw` are set on `/usr/bin/python3` (Step 3 of the installer).
+
 ---
 
 ## Day-to-Day Operations
@@ -1119,4 +1160,4 @@ realtime-packet-sniff/
 
 ---
 
-*This guide covers v0.3.0 — see the [Releases page](https://github.com/ntu168108/realtime-packet-sniff/releases) for the latest changes.*
+*This guide covers v0.4.0 — see the [Releases page](https://github.com/ntu168108/realtime-packet-sniff/releases) for the latest changes.*

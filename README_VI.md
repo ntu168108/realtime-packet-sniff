@@ -206,6 +206,12 @@ Giao diện web chạy như `sniff-web.service` trên port 8000. Quản lý capt
 y hệt TUI, kèm 5 systemd services, Kafka topics, ClickHouse queries, và file PCAP
 đã rotate — tất cả từ trình duyệt.
 
+> **v0.4.0:** đổi interface trên `/capture` giờ cũng tự khởi động lại pipeline
+> Kafka/ClickHouse (`sniff-producer`) để UI và pipeline phân loại backend luôn
+> cùng trỏ vào một NIC. `/credentials` tự phát hiện IP của interface đang
+> bắt gói tin (qua `psutil.net_if_addrs`) khi hiển thị URL Grafana /
+> ClickHouse / Kafka.
+
 Xem `sniff-web/docs/WEB_GUI.md` để biết chi tiết. Cài nhanh:
 
 ```bash
