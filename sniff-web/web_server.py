@@ -393,6 +393,15 @@ _loop: Optional[asyncio.AbstractEventLoop] = None
 _pkt_queue: Optional[asyncio.Queue] = None
 _drop_queue: Optional[asyncio.Queue] = None
 
+# v0.4.1 — bound on how long a slow WebSocket client can stall the packet
+# broadcast. Without this, a single stuck browser tab freezes _fan_out,
+# which fills _pkt_queue (maxsize=4000), which raises QueueFull on every
+# packet, which floods journal logs and (more importantly) blocks the
+# asyncio loop long enough that HTTP requests time out — operator sees
+# the web UI as "frozen". 1 s is generous for local LAN browsers but
+# short enough that a wedged client is evicted in well under a second.
+WS_SEND_TIMEOUT: float = 1.0
+
 # ---------------------------------------------------------------------------
 # Dashboard history buffers (rate_history + alert ring)
 # ---------------------------------------------------------------------------
@@ -479,16 +488,36 @@ def _cb_drop(reason: str, count: int):
 
 
 async def _fan_out(clients: set, msg: str):
-    """Send JSON message to all connected WebSocket clients; drop dead ones."""
-    dead = set()
-    results = await asyncio.gather(
-        *[ws.send_text(msg) for ws in list(clients)],
-        return_exceptions=True,
-    )
-    for ws, r in zip(list(clients), results):
-        if isinstance(r, Exception):
-            dead.add(ws)
+    """Send JSON message to all connected WebSocket clients; drop dead ones.
+
+    Each send_text is wrapped in asyncio.wait_for(WS_SEND_TIMEOUT) so a
+    slow client (browser tab in background, network glitch) cannot block
+    the entire broadcast loop. Timed-out clients are dropped — they will
+    reconnect on the next /ws/connect if the browser still has the tab
+    open. Without this guard, one stuck client is enough to halt packet
+    fan-out for everyone else; combined with a full asyncio.Queue that
+    would freeze all HTTP handlers because uvicorn runs the asyncio loop
+    in a single worker (see deploy/systemd/sniff-web.service --workers 1).
+    """
+    if not clients:
+        return
+    targets = list(clients)
+    coros = [_send_with_timeout(ws, msg) for ws in targets]
+    results = await asyncio.gather(*coros, return_exceptions=True)
+    dead = {ws for ws, r in zip(targets, results) if isinstance(r, BaseException)}
     clients -= dead
+
+
+async def _send_with_timeout(ws, msg: str):
+    """send_text with a hard cap. TimeoutError / disconnect → caller drops the client."""
+    try:
+        await asyncio.wait_for(ws.send_text(msg), timeout=WS_SEND_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.debug("WS send_text timeout after %.1fs, dropping client", WS_SEND_TIMEOUT)
+        raise
+    except Exception as exc:
+        logger.debug("WS send_text error: %s", exc)
+        raise
 
 
 async def _broadcast_packets():
@@ -613,8 +642,13 @@ async def _on_startup():
     # Initialize asyncio queues and start broadcast tasks
     global _loop, _pkt_queue, _drop_queue, _history_task
     _loop = asyncio.get_running_loop()
-    _pkt_queue = asyncio.Queue(maxsize=4000)
-    _drop_queue = asyncio.Queue(maxsize=200)
+    # v0.4.1 — packet queue raised from 4000 to 32 768 to keep pace with
+    # high-rate captures (~30 pps sustained). With 4000 we hit QueueFull
+    # within ~130 s of capture-vs-broadcast skew, raising exceptions that
+    # flood journal logs; 32 768 ≈ 18 min of headroom at 30 pps, more
+    # than enough to ride out a slow WS client or a brief stall.
+    _pkt_queue = asyncio.Queue(maxsize=32768)
+    _drop_queue = asyncio.Queue(maxsize=1000)
     asyncio.create_task(_broadcast_packets())
     asyncio.create_task(_broadcast_stats())
 
